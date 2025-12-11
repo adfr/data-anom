@@ -1,0 +1,33 @@
+# UI Framework
+streamlit>=1.28.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# CDP/Iceberg Connection
+impyla>=0.18.0
+thrift>=0.16.0
+thrift-sasl>=0.4.3
+pyiceberg>=0.5.0
+
+# Synthetic Data Generation
+sdv>=1.6.0
+faker>=20.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Data Profiling
+ydata-profiling>=4.6.0
+
+# Visualization
+plotly>=5.18.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+loguru>=0.7.0
