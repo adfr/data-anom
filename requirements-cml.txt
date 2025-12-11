@@ -1,0 +1,23 @@
+# Core UI Framework
+streamlit>=1.28.0
+
+# Data Processing (usually pre-installed in CML)
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# Synthetic Data Generation - Lightweight
+faker>=20.0.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
+
+# Visualization
+plotly>=5.18.0
+
+# Utilities
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+loguru>=0.7.0
+
+# Note: SDV is optional (heavy package, ~500MB)
+# Install separately if needed: pip install sdv>=1.6.0

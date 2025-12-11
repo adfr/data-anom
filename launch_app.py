@@ -14,18 +14,12 @@ def install_dependencies():
     """Install required dependencies if not already installed."""
     print("Checking and installing dependencies...")
 
-    # Try multiple locations for requirements.txt
+    # Use lightweight requirements for CML (avoids heavy SDV package)
+    # Prefer requirements-cml.txt which excludes memory-heavy packages
     possible_paths = [
-        "requirements.txt",  # Current working directory
-        "/home/cdsw/requirements.txt",  # CML default project path
+        "requirements-cml.txt",  # Lightweight for CML
+        "/home/cdsw/requirements-cml.txt",
     ]
-
-    # Try to get script directory if available (for direct script execution)
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        possible_paths.insert(0, os.path.join(script_dir, "requirements.txt"))
-    except NameError:
-        pass  # __file__ not defined in notebook context
 
     requirements_file = None
     for path in possible_paths:
@@ -41,17 +35,13 @@ def install_dependencies():
         )
         print("Dependencies installed successfully.")
     else:
-        # Fallback: install core dependencies directly
-        print("requirements.txt not found, installing core dependencies...")
+        # Fallback: install core dependencies directly (lightweight)
+        print("Installing core dependencies...")
         core_deps = [
             "streamlit>=1.28.0",
-            "pandas>=2.0.0",
-            "numpy>=1.24.0",
-            "pyarrow>=14.0.0",
             "plotly>=5.18.0",
             "faker>=20.0.0",
             "scikit-learn>=1.3.0",
-            "scipy>=1.11.0",
             "pydantic>=2.5.0",
             "pydantic-settings>=2.1.0",
             "loguru>=0.7.0",
