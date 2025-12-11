@@ -64,13 +64,15 @@ def main():
     # Get port from environment or use default
     port = os.environ.get("CDSW_APP_PORT", "8080")
 
-    # Build the streamlit command
+    # Build the streamlit command with CML-compatible settings
     cmd = [
         sys.executable, "-m", "streamlit", "run",
         "app/main.py",
         "--server.port", port,
         "--server.address", "0.0.0.0",
         "--server.headless", "true",
+        "--server.enableXsrfProtection", "false",  # Required for CML
+        "--server.enableCORS", "false",  # Required for CML
         "--browser.gatherUsageStats", "false",
     ]
 
