@@ -61,18 +61,28 @@ def main():
     # Set environment variables for CML
     os.environ.setdefault("PYTHONPATH", "/home/cdsw")
 
-    # Get port from environment or use default
-    port = os.environ.get("CDSW_APP_PORT", "8080")
+    # Get port from environment - CDSW_APP_PORT is required in CML
+    port = os.environ.get("CDSW_APP_PORT")
+
+    if port:
+        # Running in CML - bind to 127.0.0.1 as required by CML
+        server_address = "127.0.0.1"
+        print(f"CML environment detected (CDSW_APP_PORT={port})")
+    else:
+        # Local development - use default port and bind to all interfaces
+        port = "8501"
+        server_address = "0.0.0.0"
+        print("Local environment - using default port 8501")
 
     # Build the streamlit command with CML-compatible settings
     cmd = [
         sys.executable, "-m", "streamlit", "run",
         "app/main.py",
         "--server.port", port,
-        "--server.address", "0.0.0.0",
+        "--server.address", server_address,
         "--server.headless", "true",
-        "--server.enableXsrfProtection", "false",  # Required for CML
-        "--server.enableCORS", "false",  # Required for CML
+        "--server.enableXsrfProtection", "false",
+        "--server.enableCORS", "false",
         "--browser.gatherUsageStats", "false",
     ]
 
