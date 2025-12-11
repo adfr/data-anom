@@ -323,17 +323,31 @@ def profile_data():
     state["profile"] = profile
     state["column_config"] = column_config
 
-    # Convert numpy types to Python types for JSON serialization
+    # Convert numpy/pandas types to Python types for JSON serialization
     def convert_types(obj):
-        if isinstance(obj, (np.integer, np.floating)):
+        if obj is None:
+            return None
+        if isinstance(obj, (np.bool_, bool)):
+            return bool(obj)
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
             return float(obj) if np.isfinite(obj) else None
         if isinstance(obj, np.ndarray):
-            return obj.tolist()
+            return [convert_types(x) for x in obj.tolist()]
+        if isinstance(obj, (pd.Timestamp, pd.Timedelta)):
+            return str(obj)
         if isinstance(obj, dict):
-            return {k: convert_types(v) for k, v in obj.items()}
-        if isinstance(obj, list):
+            return {str(k): convert_types(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
             return [convert_types(i) for i in obj]
-        return obj
+        if isinstance(obj, (str, int, float)):
+            return obj
+        # Fallback: convert to string
+        try:
+            return str(obj)
+        except:
+            return None
 
     return jsonify({
         "profile": convert_types(profile),
