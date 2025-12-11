@@ -21,8 +21,15 @@ from app.components.ui_components import (
     display_quality_report,
 )
 from app.services.cdp_connector import CDPConnector, MockCDPConnector
+from app.services.cml_connector import CMLDataLakeConnector, get_connector
 from app.services.data_profiler import DataProfiler
 from app.services.synthetic_generator import SDVSyntheticGenerator, SyntheticDataGenerator
+
+# Check if running in CML environment
+def is_cml_environment() -> bool:
+    """Check if running in Cloudera Machine Learning environment."""
+    import os
+    return os.environ.get("CDSW_PROJECT_URL") is not None or os.environ.get("CDSW_ENGINE_ID") is not None
 
 # Page configuration
 st.set_page_config(
@@ -82,16 +89,29 @@ def render_sidebar():
         )
         st.title("Data Source")
 
+        # Detect CML environment and adjust options
+        in_cml = is_cml_environment()
+
+        if in_cml:
+            data_sources = ["CDP Data Lake", "Upload CSV", "Sample Dataset"]
+            default_source = "CDP Data Lake"
+        else:
+            data_sources = ["CDP Data Lake", "Demo Mode", "Upload CSV", "Sample Dataset"]
+            default_source = "Demo Mode"
+
         data_source = st.radio(
             "Select data source",
-            ["CDP Iceberg (Demo)", "Upload CSV", "Sample Dataset"],
+            data_sources,
+            index=data_sources.index(default_source),
             key="data_source_radio",
         )
 
         st.divider()
 
-        if data_source == "CDP Iceberg (Demo)":
-            render_cdp_connection()
+        if data_source == "CDP Data Lake":
+            render_cml_connection()
+        elif data_source == "Demo Mode":
+            render_demo_connection()
         elif data_source == "Upload CSV":
             render_csv_upload()
         else:
@@ -126,50 +146,142 @@ def render_sidebar():
         return data_source
 
 
-def render_cdp_connection():
-    """Render CDP connection settings."""
-    st.subheader("CDP Connection")
+def render_cml_connection():
+    """Render CML Data Lake connection using Spark/Iceberg."""
+    st.subheader("CDP Data Lake")
 
-    # Demo mode notice
-    st.info("Demo mode: Using mock CDP connector with sample data")
+    in_cml = is_cml_environment()
 
-    use_demo = st.checkbox("Use Demo Mode", value=True)
-
-    if use_demo:
-        if st.button("Connect (Demo)"):
-            connector = MockCDPConnector()
-            connector.connect()
-            st.session_state.connector = connector
-            st.success("Connected to Demo CDP")
+    if in_cml:
+        st.success("Running in Cloudera AI - Direct data lake access available")
     else:
-        host = st.text_input("Host", value="localhost")
-        port = st.number_input("Port", value=21050)
-        database = st.text_input("Database", value="default")
+        st.warning("Not in CML environment. Spark connection may require configuration.")
 
-        if st.button("Connect"):
-            st.warning("Real CDP connection requires proper credentials")
+    # Catalog configuration
+    catalog_name = st.text_input(
+        "Iceberg Catalog",
+        value="spark_catalog",
+        help="Name of the Iceberg catalog configured in your environment"
+    )
 
-    # Table selection
-    if st.session_state.connector and st.session_state.connector.is_connected():
-        st.subheader("Select Table")
+    # Connect button
+    if st.button("Connect to Data Lake", type="primary"):
+        with st.spinner("Initializing Spark session..."):
+            try:
+                connector = CMLDataLakeConnector(catalog_name=catalog_name)
+                connector._get_spark()  # Initialize connection
+                st.session_state.connector = connector
+                st.session_state.connector_type = "cml"
+                st.success("Connected to CDP Data Lake via Spark")
+            except Exception as e:
+                st.error(f"Connection failed: {e}")
+                st.info("Falling back to demo mode...")
+                connector = MockCDPConnector()
+                connector.connect()
+                st.session_state.connector = connector
+                st.session_state.connector_type = "mock"
 
-        databases = st.session_state.connector.list_databases()
-        selected_db = st.selectbox("Database", databases)
+    # Table selection (once connected)
+    _render_table_selection()
+
+
+def render_demo_connection():
+    """Render demo mode connection with sample data."""
+    st.subheader("Demo Mode")
+
+    st.info("Using mock connector with sample datasets for demonstration")
+
+    if st.button("Connect (Demo)", type="primary"):
+        connector = MockCDPConnector()
+        connector.connect()
+        st.session_state.connector = connector
+        st.session_state.connector_type = "mock"
+        st.success("Connected to Demo Environment")
+
+    # Table selection (once connected)
+    _render_table_selection()
+
+
+def _render_table_selection():
+    """Render table selection UI for connected data sources."""
+    connector = st.session_state.get("connector")
+
+    if connector is None:
+        return
+
+    is_connected = (
+        connector.is_connected()
+        if hasattr(connector, "is_connected")
+        else st.session_state.get("connector_type") == "cml"
+    )
+
+    if not is_connected:
+        return
+
+    st.subheader("Select Table")
+
+    try:
+        databases = connector.list_databases()
+        selected_db = st.selectbox("Database", databases, key="db_select")
 
         if selected_db:
-            tables = st.session_state.connector.list_tables(selected_db)
-            selected_table = st.selectbox("Table", tables)
+            tables = connector.list_tables(selected_db)
 
-            if st.button("Load Table"):
-                with st.spinner("Loading data..."):
-                    df = st.session_state.connector.read_table(
-                        selected_table, selected_db, limit=10000
-                    )
-                    st.session_state.source_data = df
-                    st.session_state.profile = None
-                    st.session_state.column_config = None
-                    st.session_state.synthetic_data = None
-                    st.success(f"Loaded {len(df)} rows from {selected_db}.{selected_table}")
+            if tables:
+                selected_table = st.selectbox("Table", tables, key="table_select")
+
+                # Row limit
+                row_limit = st.number_input(
+                    "Max rows to load",
+                    min_value=100,
+                    max_value=100000,
+                    value=10000,
+                    step=1000,
+                    help="Limit rows for faster loading. Full table used for profiling."
+                )
+
+                if st.button("Load Table", type="primary"):
+                    _load_table_data(connector, selected_table, selected_db, row_limit)
+            else:
+                st.warning(f"No tables found in database: {selected_db}")
+
+    except Exception as e:
+        st.error(f"Error listing databases/tables: {e}")
+
+
+def _load_table_data(connector, table: str, database: str, limit: int):
+    """Load data from selected table."""
+    with st.spinner(f"Loading {database}.{table}..."):
+        try:
+            # Check connector type and use appropriate method
+            if hasattr(connector, "get_sample"):
+                # CML connector - use sampling for large tables
+                df = connector.get_sample(table, database, n=limit)
+            else:
+                # Standard connector
+                df = connector.read_table(table, database, limit=limit)
+
+            st.session_state.source_data = df
+            st.session_state.source_table = f"{database}.{table}"
+            st.session_state.profile = None
+            st.session_state.column_config = None
+            st.session_state.synthetic_data = None
+
+            st.success(f"Loaded {len(df):,} rows from {database}.{table}")
+
+            # Show table info if available
+            if hasattr(connector, "get_table_info"):
+                try:
+                    info = connector.get_table_info(table, database)
+                    if info.get("row_count"):
+                        st.info(f"Total table size: {info['row_count']:,} rows")
+                except Exception:
+                    pass
+
+        except Exception as e:
+            st.error(f"Error loading table: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def render_csv_upload():

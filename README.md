@@ -22,12 +22,35 @@ A showcase UI for generating synthetic data from CDP Iceberg datasets. This tool
 
 ## Installation
 
-### Prerequisites
+### Cloudera AI (CML) Deployment (Recommended)
 
-- Python 3.9+
-- pip or conda
+This application is designed to run on Cloudera AI with direct access to the CDP Data Lake.
 
-### Setup
+1. **Create a new CML Project**:
+   - Go to your CML workspace
+   - Click "New Project"
+   - Select "Git" and enter the repository URL
+
+2. **Build the Project**:
+   - The `cdsw-build.sh` script will automatically install dependencies
+
+3. **Create an Application**:
+   - Go to "Applications" in your project
+   - Click "New Application"
+   - Settings:
+     - **Name**: Synthetic Data Generator
+     - **Script**: `launch_app.py`
+     - **Engine**: Python 3.10 with Spark addon
+     - **Resource Profile**: 2 vCPU, 8GB RAM (minimum)
+   - Click "Create Application"
+
+4. **Access the Application**:
+   - Once running, click the application URL
+   - The UI will have direct access to your CDP Data Lake tables
+
+### Local Development
+
+For local development and testing:
 
 1. Clone the repository:
 ```bash
@@ -46,16 +69,19 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. (Optional) Configure CDP connection:
+4. (Optional) For Spark/Iceberg support locally:
 ```bash
-cp .env.example .env
-# Edit .env with your CDP credentials
+pip install pyspark>=3.4.0
 ```
 
 ## Usage
 
 ### Running the UI
 
+**In CML:**
+The application runs automatically when you start the CML Application.
+
+**Locally:**
 ```bash
 streamlit run app/main.py
 ```
@@ -108,7 +134,8 @@ data-anom/
 │   │   └── ui_components.py       # Reusable UI components
 │   ├── services/
 │   │   ├── __init__.py
-│   │   ├── cdp_connector.py       # CDP/Iceberg connection
+│   │   ├── cdp_connector.py       # CDP/Impala connection
+│   │   ├── cml_connector.py       # CML native Spark/Iceberg connector
 │   │   ├── data_profiler.py       # Data profiling service
 │   │   └── synthetic_generator.py # Synthetic data generation
 │   └── utils/
@@ -117,6 +144,9 @@ data-anom/
 ├── config/
 │   ├── __init__.py
 │   └── settings.py                # Application settings
+├── cdsw-build.sh                  # CML build script
+├── launch_app.py                  # CML application launcher
+├── .project-metadata.yaml         # CML project metadata
 ├── requirements.txt
 ├── pyproject.toml
 ├── .env.example
