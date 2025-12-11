@@ -14,18 +14,12 @@ def install_dependencies():
     """Install required dependencies if not already installed."""
     print("Checking and installing dependencies...")
 
-    # Try multiple locations for requirements.txt
+    # Use lightweight requirements for CML (avoids heavy SDV package)
+    # Prefer requirements-cml.txt which excludes memory-heavy packages
     possible_paths = [
-        "requirements.txt",  # Current working directory
-        "/home/cdsw/requirements.txt",  # CML default project path
+        "requirements-cml.txt",  # Lightweight for CML
+        "/home/cdsw/requirements-cml.txt",
     ]
-
-    # Try to get script directory if available (for direct script execution)
-    try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        possible_paths.insert(0, os.path.join(script_dir, "requirements.txt"))
-    except NameError:
-        pass  # __file__ not defined in notebook context
 
     requirements_file = None
     for path in possible_paths:
@@ -41,17 +35,13 @@ def install_dependencies():
         )
         print("Dependencies installed successfully.")
     else:
-        # Fallback: install core dependencies directly
-        print("requirements.txt not found, installing core dependencies...")
+        # Fallback: install core dependencies directly (lightweight)
+        print("Installing core dependencies...")
         core_deps = [
             "streamlit>=1.28.0",
-            "pandas>=2.0.0",
-            "numpy>=1.24.0",
-            "pyarrow>=14.0.0",
             "plotly>=5.18.0",
             "faker>=20.0.0",
             "scikit-learn>=1.3.0",
-            "scipy>=1.11.0",
             "pydantic>=2.5.0",
             "pydantic-settings>=2.1.0",
             "loguru>=0.7.0",
@@ -71,16 +61,28 @@ def main():
     # Set environment variables for CML
     os.environ.setdefault("PYTHONPATH", "/home/cdsw")
 
-    # Get port from environment or use default
-    port = os.environ.get("CDSW_APP_PORT", "8080")
+    # Get port from environment - CDSW_APP_PORT is required in CML
+    port = os.environ.get("CDSW_APP_PORT")
 
-    # Build the streamlit command
+    if port:
+        # Running in CML - bind to 127.0.0.1 as required by CML
+        server_address = "127.0.0.1"
+        print(f"CML environment detected (CDSW_APP_PORT={port})")
+    else:
+        # Local development - use default port and bind to all interfaces
+        port = "8501"
+        server_address = "0.0.0.0"
+        print("Local environment - using default port 8501")
+
+    # Build the streamlit command with CML-compatible settings
     cmd = [
         sys.executable, "-m", "streamlit", "run",
         "app/main.py",
         "--server.port", port,
-        "--server.address", "0.0.0.0",
+        "--server.address", server_address,
         "--server.headless", "true",
+        "--server.enableXsrfProtection", "false",
+        "--server.enableCORS", "false",
         "--browser.gatherUsageStats", "false",
     ]
 

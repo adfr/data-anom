@@ -130,11 +130,23 @@ def render_sidebar():
             step=100,
         )
 
+        # Check if SDV is available
+        try:
+            import sdv
+            sdv_available = True
+            generator_options = ["Basic (Fast)", "SDV Gaussian Copula", "SDV CTGAN"]
+        except ImportError:
+            sdv_available = False
+            generator_options = ["Basic (Fast)"]
+
         st.session_state.generator_type = st.selectbox(
             "Generator Type",
-            ["Basic (Fast)", "SDV Gaussian Copula", "SDV CTGAN"],
-            help="Basic is faster, SDV provides better statistical preservation",
+            generator_options,
+            help="Basic is fast. SDV provides better statistical preservation (install sdv package for more options).",
         )
+
+        if not sdv_available:
+            st.caption("Install `sdv` package for advanced generators")
 
         st.session_state.random_seed = st.number_input(
             "Random Seed (0 for random)",
