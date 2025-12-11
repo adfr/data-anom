@@ -10,8 +10,42 @@ import subprocess
 import sys
 
 
+def install_dependencies():
+    """Install required dependencies if not already installed."""
+    print("Checking and installing dependencies...")
+
+    # Install from requirements.txt
+    requirements_file = os.path.join(os.path.dirname(__file__), "requirements.txt")
+
+    if os.path.exists(requirements_file):
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", "-r", requirements_file],
+            check=True
+        )
+        print("Dependencies installed successfully.")
+    else:
+        # Fallback: install core dependencies directly
+        core_deps = [
+            "streamlit>=1.28.0",
+            "pandas>=2.0.0",
+            "numpy>=1.24.0",
+            "plotly>=5.18.0",
+            "faker>=20.0.0",
+            "scikit-learn>=1.3.0",
+            "pydantic>=2.5.0",
+            "loguru>=0.7.0",
+        ]
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q"] + core_deps,
+            check=True
+        )
+
+
 def main():
     """Launch the Streamlit application."""
+    # Install dependencies first
+    install_dependencies()
+
     # Set environment variables for CML
     os.environ.setdefault("PYTHONPATH", "/home/cdsw")
 
