@@ -2,7 +2,7 @@
 """
 Launcher script for CML Applications.
 
-This script is used to launch the Streamlit app in CML environment.
+This script launches the Flask + React app in CML environment.
 """
 
 import os
@@ -14,10 +14,9 @@ def install_dependencies():
     """Install required dependencies if not already installed."""
     print("Checking and installing dependencies...")
 
-    # Use lightweight requirements for CML (avoids heavy SDV package)
-    # Prefer requirements-cml.txt which excludes memory-heavy packages
+    # Use lightweight requirements for CML
     possible_paths = [
-        "requirements-cml.txt",  # Lightweight for CML
+        "requirements-cml.txt",
         "/home/cdsw/requirements-cml.txt",
     ]
 
@@ -35,10 +34,13 @@ def install_dependencies():
         )
         print("Dependencies installed successfully.")
     else:
-        # Fallback: install core dependencies directly (lightweight)
+        # Fallback: install core dependencies directly
         print("Installing core dependencies...")
         core_deps = [
-            "streamlit>=1.28.0",
+            "flask>=2.3.0",
+            "flask-cors>=4.0.0",
+            "pandas>=2.0.0",
+            "numpy>=1.24.0",
             "plotly>=5.18.0",
             "faker>=20.0.0",
             "scikit-learn>=1.3.0",
@@ -54,43 +56,24 @@ def install_dependencies():
 
 
 def main():
-    """Launch the Streamlit application."""
+    """Launch the Flask application."""
     # Install dependencies first
     install_dependencies()
 
     # Set environment variables for CML
     os.environ.setdefault("PYTHONPATH", "/home/cdsw")
 
-    # Get port from environment - CDSW_APP_PORT is required in CML
-    port = os.environ.get("CDSW_APP_PORT")
+    print("Starting Synthetic Data Generator application...")
 
-    if port:
-        # Running in CML - bind to 127.0.0.1 as required by CML
-        server_address = "127.0.0.1"
-        print(f"CML environment detected (CDSW_APP_PORT={port})")
-    else:
-        # Local development - use default port and bind to all interfaces
-        port = "8501"
-        server_address = "0.0.0.0"
-        print("Local environment - using default port 8501")
+    # CML uses 127.0.0.1 and CDSW_APP_PORT or CDSW_READONLY_PORT
+    HOST = '127.0.0.1'
+    PORT = os.getenv('CDSW_APP_PORT', os.getenv('CDSW_READONLY_PORT', '8090'))
 
-    # Build the streamlit command with CML-compatible settings
-    cmd = [
-        sys.executable, "-m", "streamlit", "run",
-        "app/main.py",
-        "--server.port", port,
-        "--server.address", server_address,
-        "--server.headless", "true",
-        "--server.enableXsrfProtection", "false",
-        "--server.enableCORS", "false",
-        "--browser.gatherUsageStats", "false",
-    ]
+    print(f"Running on {HOST}:{PORT}")
 
-    print(f"Launching Streamlit on port {port}...")
-    print(f"Command: {' '.join(cmd)}")
-
-    # Execute streamlit
-    subprocess.run(cmd, check=True)
+    # Import and run Flask app
+    from app.api import app
+    app.run(host=HOST, port=int(PORT))
 
 
 if __name__ == "__main__":
