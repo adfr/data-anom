@@ -953,7 +953,7 @@
             const handleLoadTable = async (database, table) => {
                 try {
                     setError(null);
-                    const data = await api.post(`/table/${database}/${table}/load`, { limit: 10000 });
+                    const data = await api.post(`/table/${database}/${table}/load`, { limit: 200 });
                     setState(s => ({...s, sourceData: data, profile: null, syntheticData: null, tokenizedData: null}));
                 } catch (e) {
                     setError(e.message);
