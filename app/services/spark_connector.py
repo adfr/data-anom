@@ -110,7 +110,8 @@ class SparkConnector:
         spark = self._get_spark()
 
         try:
-            df = spark.sql("SHOW DATABASES")
+            # Limit to 100 databases for performance
+            df = spark.sql("SHOW DATABASES").limit(100)
             # Get the first column regardless of name (namespace, databaseName, etc.)
             return [row[0] for row in df.collect()]
         except Exception as e:
@@ -130,7 +131,8 @@ class SparkConnector:
         spark = self._get_spark()
 
         try:
-            df = spark.sql(f"SHOW TABLES IN {database}")
+            # Limit to 200 tables for performance
+            df = spark.sql(f"SHOW TABLES IN {database}").limit(200)
             # tableName is usually second column (first is database)
             return [row[1] if len(row) > 1 else row[0] for row in df.collect()]
         except Exception as e:
