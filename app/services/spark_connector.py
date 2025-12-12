@@ -91,7 +91,8 @@ class SparkConnector:
 
         try:
             df = spark.sql("SHOW DATABASES")
-            return [row.databaseName for row in df.collect()]
+            # Get the first column regardless of name (namespace, databaseName, etc.)
+            return [row[0] for row in df.collect()]
         except Exception as e:
             logger.error(f"Error listing databases: {e}")
             raise
@@ -110,7 +111,8 @@ class SparkConnector:
 
         try:
             df = spark.sql(f"SHOW TABLES IN {database}")
-            return [row.tableName for row in df.collect()]
+            # tableName is usually second column (first is database)
+            return [row[1] if len(row) > 1 else row[0] for row in df.collect()]
         except Exception as e:
             logger.error(f"Error listing tables in {database}: {e}")
             raise
@@ -133,16 +135,17 @@ class SparkConnector:
 
             columns = []
             for row in df.collect():
-                col_name = row.col_name
-                col_type = row.data_type
-                col_comment = getattr(row, 'comment', None)
+                # Use index access for compatibility
+                col_name = row[0] if len(row) > 0 else None
+                col_type = row[1] if len(row) > 1 else None
+                col_comment = row[2] if len(row) > 2 else None
 
                 # Skip partition info rows and empty rows
-                if col_name and not col_name.startswith('#') and col_name.strip():
+                if col_name and not str(col_name).startswith('#') and str(col_name).strip():
                     columns.append({
-                        "name": col_name.strip(),
-                        "type": col_type.strip() if col_type else "unknown",
-                        "comment": col_comment.strip() if col_comment and col_comment.strip() else None,
+                        "name": str(col_name).strip(),
+                        "type": str(col_type).strip() if col_type else "unknown",
+                        "comment": str(col_comment).strip() if col_comment and str(col_comment).strip() else None,
                     })
 
             return columns
@@ -231,7 +234,7 @@ class SparkConnector:
         # Get row count
         try:
             count_df = spark.sql(f"SELECT COUNT(*) as cnt FROM {database}.{table}")
-            row_count = count_df.collect()[0].cnt
+            row_count = count_df.collect()[0][0]
         except Exception:
             row_count = None
 
