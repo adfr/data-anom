@@ -189,7 +189,16 @@ def calculate_statistics(series: pd.Series) -> dict:
         "unique_percentage": (series.nunique() / len(series) * 100) if len(series) > 0 else 0,
     }
 
-    if pd.api.types.is_numeric_dtype(series.dtype):
+    if pd.api.types.is_bool_dtype(series.dtype):
+        # Boolean columns - just show value counts
+        stats.update(
+            {
+                "true_count": series.sum(),
+                "false_count": (series == False).sum(),
+                "true_percentage": (series.sum() / series.count() * 100) if series.count() > 0 else 0,
+            }
+        )
+    elif pd.api.types.is_numeric_dtype(series.dtype):
         stats.update(
             {
                 "mean": series.mean(),

@@ -190,7 +190,7 @@
             };
 
             return (
-                <div className="w-72 bg-white shadow-lg p-4 overflow-y-auto">
+                <div className="w-72 min-w-72 flex-shrink-0 bg-white shadow-lg p-4 overflow-y-auto">
                     <div className="mb-6">
                         <h1 className="text-xl font-bold text-gray-800">Synthetic Data Generator</h1>
                         <p className="text-sm text-gray-500 mt-1">Generate privacy-safe data</p>
@@ -1077,7 +1077,7 @@
                         settings={settings}
                         setSettings={setSettings}
                     />
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                         {error && (
                             <div className="p-4">
                                 <Alert type="error" message={error} onClose={() => setError(null)} />
