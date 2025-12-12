@@ -1,6 +1,7 @@
 """Cloudera AI (CML) native data connector using CML Data Connections.
 
 Supports:
+- Spark (default, recommended for Data Lake)
 - Virtual Data Warehouse (CDW) - Impala/Hive/Trino
 - Data Lake (Hive/Impala)
 - Iceberg tables
@@ -42,14 +43,14 @@ class CMLDataConnector:
         self._connection_info = {}
 
     def _detect_connection_type(self, conn_name: str) -> str:
-        """Get connection type from environment or default to impala."""
+        """Get connection type from environment or default to spark."""
         import os
         # Use explicit environment variable if set
-        conn_type = os.environ.get('CML_CONNECTION_TYPE', 'impala').lower()
-        if conn_type in ('impala', 'hive', 'trino', 'datalake'):
+        conn_type = os.environ.get('CML_CONNECTION_TYPE', 'spark').lower()
+        if conn_type in ('spark', 'impala', 'hive', 'trino', 'datalake'):
             return conn_type
-        # Default to Impala (most common for CDW)
-        return 'impala'
+        # Default to Spark (recommended for Data Lake)
+        return 'spark'
 
     def _list_available_connections(self) -> List[str]:
         """List available CML Data Connections (handles different API versions)."""
@@ -194,6 +195,7 @@ class CMLDataConnector:
     def _get_type_label(self) -> str:
         """Get a human-readable label for the connection type."""
         labels = {
+            'spark': 'Spark (Data Lake)',
             'impala': 'Impala Virtual Warehouse',
             'trino': 'Trino Virtual Warehouse',
             'hive': 'Hive Virtual Warehouse',
@@ -201,7 +203,7 @@ class CMLDataConnector:
             'datalake': 'Data Lake',
             'unknown': 'Data Connection',
         }
-        return labels.get(self._connection_type, 'Impala Virtual Warehouse')
+        return labels.get(self._connection_type, 'Spark (Data Lake)')
 
     def get_available_connections(self) -> List[Dict[str, Any]]:
         """Get list of available CML Data Connections with their types."""
@@ -212,13 +214,14 @@ class CMLDataConnector:
                     "name": conn,
                     "type": self._detect_connection_type(conn),
                     "type_label": {
+                        'spark': 'Spark (Data Lake)',
                         'impala': 'Impala Virtual Warehouse',
                         'trino': 'Trino Virtual Warehouse',
                         'hive': 'Hive Virtual Warehouse',
                         'cdw': 'Virtual Data Warehouse',
                         'datalake': 'Data Lake',
                         'unknown': 'Data Connection',
-                    }.get(self._detect_connection_type(conn), 'Impala Virtual Warehouse'),
+                    }.get(self._detect_connection_type(conn), 'Spark (Data Lake)'),
                 }
                 for conn in connections
             ]
@@ -461,14 +464,33 @@ CMLDataLakeConnector = CMLDataConnector
 
 def get_connector(connection_name: Optional[str] = None):
     """
-    Factory function to get the CML connector.
+    Factory function to get the appropriate connector.
+
+    Checks CML_CONNECTION_TYPE env var to determine connector type:
+    - 'spark': Use SparkConnector (default, recommended for Data Lake)
+    - 'impala', 'hive', 'trino': Use CMLDataConnector
 
     Args:
         connection_name: Optional specific connection name
 
     Returns:
-        CMLDataConnector instance
+        Connector instance (SparkConnector or CMLDataConnector)
     """
+    import os
+    conn_type = os.environ.get('CML_CONNECTION_TYPE', 'spark').lower()
+
+    # Use Spark connector for spark type (default)
+    if conn_type == 'spark':
+        try:
+            from app.services.spark_connector import SparkConnector
+            connector = SparkConnector()
+            connector._get_spark()  # Test connection
+            logger.info("Using Spark connector for Data Lake access")
+            return connector
+        except Exception as e:
+            logger.warning(f"Spark connector failed: {e}. Trying CML connector...")
+
+    # Use CML Data Connection for other types
     try:
         connector = CMLDataConnector(connection_name=connection_name)
         connector._get_connection()  # Test connection
