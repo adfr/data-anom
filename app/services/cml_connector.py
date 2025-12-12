@@ -1,4 +1,4 @@
-"""Cloudera AI (CML) native data lake connector using Spark and Iceberg."""
+"""Cloudera AI (CML) native data lake connector using CML Data Connections."""
 
 from typing import Any, Dict, List, Optional
 
@@ -8,79 +8,108 @@ from loguru import logger
 
 class CMLDataLakeConnector:
     """
-    Native connector for Cloudera AI/CML environment.
+    Native connector for Cloudera AI/CML environment using CML Data Connections.
 
-    Uses SparkSession with Iceberg catalog for direct data lake access.
-    No external credentials needed - uses CML's built-in authentication.
+    Uses CML's built-in data connection feature for simplified, secure access
+    to the Cloudera Data Lake (Hive, Impala, Iceberg tables).
     """
 
-    def __init__(
-        self,
-        catalog_name: str = "spark_catalog",
-        warehouse: Optional[str] = None,
-    ):
+    def __init__(self, connection_name: Optional[str] = None):
         """
         Initialize the CML Data Lake connector.
 
         Args:
-            catalog_name: Iceberg catalog name (default: spark_catalog)
-            warehouse: Optional warehouse location override
+            connection_name: Name of the CML Data Connection (optional, will auto-detect)
         """
-        self.catalog_name = catalog_name
-        self.warehouse = warehouse
-        self._spark = None
+        self.connection_name = connection_name
+        self._connection = None
+        self._connection_type = None
         self._initialized = False
+        self._available_connections = []
 
-    def _get_spark(self):
-        """Get or create SparkSession with Iceberg support."""
-        if self._spark is not None:
-            return self._spark
+    def _get_connection(self):
+        """Get or create CML Data Connection."""
+        if self._connection is not None:
+            return self._connection
 
         try:
-            from pyspark.sql import SparkSession
+            import cml.data_v1 as cmldata
 
-            builder = SparkSession.builder \
-                .appName("SyntheticDataGenerator") \
-                .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
-                .config(f"spark.sql.catalog.{self.catalog_name}", "org.apache.iceberg.spark.SparkCatalog") \
-                .config(f"spark.sql.catalog.{self.catalog_name}.type", "hive") \
-                .config("spark.sql.iceberg.handle-timestamp-without-timezone", "true")
+            # List available connections
+            self._available_connections = cmldata.list_connections()
+            logger.info(f"Available CML Data Connections: {self._available_connections}")
 
-            if self.warehouse:
-                builder = builder.config(
-                    f"spark.sql.catalog.{self.catalog_name}.warehouse",
-                    self.warehouse
-                )
+            if not self._available_connections:
+                raise ValueError("No CML Data Connections configured. Please add a data connection in the CML project settings.")
 
-            # Enable Hive support for metastore access
-            self._spark = builder.enableHiveSupport().getOrCreate()
+            # Use specified connection or first available
+            if self.connection_name:
+                conn_name = self.connection_name
+            else:
+                # Try to find a Hive/Impala connection
+                for conn in self._available_connections:
+                    conn_lower = conn.lower()
+                    if any(x in conn_lower for x in ['hive', 'impala', 'warehouse', 'datalake', 'lake']):
+                        conn_name = conn
+                        break
+                else:
+                    conn_name = self._available_connections[0]
 
-            # Set catalog
-            self._spark.sql(f"USE {self.catalog_name}")
-
-            logger.info(f"SparkSession initialized with catalog: {self.catalog_name}")
+            logger.info(f"Using CML Data Connection: {conn_name}")
+            self._connection = cmldata.get_connection(conn_name)
+            self.connection_name = conn_name
             self._initialized = True
 
-            return self._spark
+            return self._connection
 
+        except ImportError as e:
+            logger.error("CML data module not available. Are you running in CML?")
+            logger.error(f"Import error: {e}")
+            raise RuntimeError(
+                "CML Data Connections not available. "
+                "Make sure you're running in Cloudera Machine Learning "
+                "and have data connections configured."
+            )
         except Exception as e:
-            logger.error(f"Failed to initialize SparkSession: {e}")
+            logger.error(f"Failed to initialize CML Data Connection: {e}")
             raise
 
     def is_connected(self) -> bool:
-        """Check if Spark session is active."""
-        return self._initialized and self._spark is not None
+        """Check if connection is active."""
+        return self._initialized and self._connection is not None
+
+    def get_available_connections(self) -> List[str]:
+        """Get list of available CML Data Connections."""
+        try:
+            import cml.data_v1 as cmldata
+            return cmldata.list_connections()
+        except Exception:
+            return []
 
     def list_databases(self) -> List[str]:
         """
-        List available databases in the data lake.
+        List available databases.
 
         Returns:
             List of database names
         """
-        spark = self._get_spark()
-        databases = spark.sql("SHOW DATABASES").collect()
-        return [row.namespace for row in databases]
+        conn = self._get_connection()
+        query = "SHOW DATABASES"
+
+        try:
+            df = conn.get_pandas_dataframe(query)
+            # Column name varies by connection type
+            if 'database_name' in df.columns:
+                return df['database_name'].tolist()
+            elif 'namespace' in df.columns:
+                return df['namespace'].tolist()
+            elif 'databaseName' in df.columns:
+                return df['databaseName'].tolist()
+            else:
+                return df.iloc[:, 0].tolist()
+        except Exception as e:
+            logger.error(f"Error listing databases: {e}")
+            raise
 
     def list_tables(self, database: str = "default") -> List[str]:
         """
@@ -92,9 +121,24 @@ class CMLDataLakeConnector:
         Returns:
             List of table names
         """
-        spark = self._get_spark()
-        tables = spark.sql(f"SHOW TABLES IN {database}").collect()
-        return [row.tableName for row in tables]
+        conn = self._get_connection()
+        query = f"SHOW TABLES IN {database}"
+
+        try:
+            df = conn.get_pandas_dataframe(query)
+            # Column name varies
+            if 'tableName' in df.columns:
+                return df['tableName'].tolist()
+            elif 'tab_name' in df.columns:
+                return df['tab_name'].tolist()
+            elif 'table_name' in df.columns:
+                return df['table_name'].tolist()
+            else:
+                # Usually second column contains table name
+                return df.iloc[:, -1].tolist() if len(df.columns) > 1 else df.iloc[:, 0].tolist()
+        except Exception as e:
+            logger.error(f"Error listing tables in {database}: {e}")
+            raise
 
     def get_table_schema(self, table: str, database: str = "default") -> List[Dict[str, Any]]:
         """
@@ -107,22 +151,30 @@ class CMLDataLakeConnector:
         Returns:
             List of column definitions
         """
-        spark = self._get_spark()
-        full_table = f"{database}.{table}"
+        conn = self._get_connection()
+        query = f"DESCRIBE {database}.{table}"
 
-        df = spark.table(full_table)
-        schema = df.schema
+        try:
+            df = conn.get_pandas_dataframe(query)
 
-        columns = []
-        for field in schema.fields:
-            columns.append({
-                "name": field.name,
-                "type": str(field.dataType),
-                "nullable": field.nullable,
-                "comment": field.metadata.get("comment") if field.metadata else None,
-            })
+            columns = []
+            for _, row in df.iterrows():
+                col_name = row.iloc[0] if len(row) > 0 else None
+                col_type = row.iloc[1] if len(row) > 1 else None
+                col_comment = row.iloc[2] if len(row) > 2 else None
 
-        return columns
+                # Skip partition info rows
+                if col_name and not col_name.startswith('#') and col_name.strip():
+                    columns.append({
+                        "name": str(col_name).strip(),
+                        "type": str(col_type).strip() if col_type else "unknown",
+                        "comment": str(col_comment).strip() if col_comment and str(col_comment).strip() else None,
+                    })
+
+            return columns
+        except Exception as e:
+            logger.error(f"Error getting schema for {database}.{table}: {e}")
+            raise
 
     def read_table(
         self,
@@ -133,7 +185,7 @@ class CMLDataLakeConnector:
         where: Optional[str] = None,
     ) -> pd.DataFrame:
         """
-        Read data from an Iceberg table.
+        Read data from a table.
 
         Args:
             table: Table name
@@ -145,28 +197,25 @@ class CMLDataLakeConnector:
         Returns:
             Pandas DataFrame with the table data
         """
-        spark = self._get_spark()
-        full_table = f"{database}.{table}"
+        conn = self._get_connection()
 
-        logger.info(f"Reading table: {full_table}")
+        # Build query
+        cols = ", ".join(columns) if columns else "*"
+        query = f"SELECT {cols} FROM {database}.{table}"
 
-        # Start with the table
-        df = spark.table(full_table)
-
-        # Select columns
-        if columns:
-            df = df.select(*columns)
-
-        # Apply filter
         if where:
-            df = df.filter(where)
+            query += f" WHERE {where}"
 
-        # Apply limit
         if limit:
-            df = df.limit(limit)
+            query += f" LIMIT {limit}"
 
-        # Convert to Pandas
-        return df.toPandas()
+        logger.info(f"Executing query: {query}")
+
+        try:
+            return conn.get_pandas_dataframe(query)
+        except Exception as e:
+            logger.error(f"Error reading table {database}.{table}: {e}")
+            raise
 
     def read_sql(self, query: str) -> pd.DataFrame:
         """
@@ -178,15 +227,18 @@ class CMLDataLakeConnector:
         Returns:
             Pandas DataFrame with query results
         """
-        spark = self._get_spark()
+        conn = self._get_connection()
         logger.info(f"Executing query: {query[:100]}...")
 
-        df = spark.sql(query)
-        return df.toPandas()
+        try:
+            return conn.get_pandas_dataframe(query)
+        except Exception as e:
+            logger.error(f"Error executing query: {e}")
+            raise
 
     def get_table_info(self, table: str, database: str = "default") -> Dict[str, Any]:
         """
-        Get detailed table information including Iceberg metadata.
+        Get detailed table information.
 
         Args:
             table: Table name
@@ -195,34 +247,25 @@ class CMLDataLakeConnector:
         Returns:
             Dictionary with table information
         """
-        spark = self._get_spark()
-        full_table = f"{database}.{table}"
-
-        # Get basic info
+        # Get schema
         schema = self.get_table_schema(table, database)
 
-        # Get row count (approximate for large tables)
-        count_df = spark.sql(f"SELECT COUNT(*) as cnt FROM {full_table}")
-        row_count = count_df.collect()[0].cnt
-
-        # Try to get Iceberg-specific metadata
-        iceberg_info = {}
+        # Get row count
         try:
-            history = spark.sql(f"SELECT * FROM {full_table}.history LIMIT 10").collect()
-            iceberg_info["snapshots"] = len(history)
-            if history:
-                iceberg_info["latest_snapshot"] = str(history[0].made_current_at)
+            conn = self._get_connection()
+            count_df = conn.get_pandas_dataframe(f"SELECT COUNT(*) as cnt FROM {database}.{table}")
+            row_count = int(count_df.iloc[0, 0])
         except Exception:
-            pass  # Table might not be Iceberg
+            row_count = None
 
         return {
             "database": database,
             "table": table,
-            "full_name": full_table,
+            "full_name": f"{database}.{table}",
             "row_count": row_count,
             "column_count": len(schema),
             "columns": schema,
-            "iceberg": iceberg_info,
+            "connection": self.connection_name,
         }
 
     def get_sample(
@@ -233,148 +276,44 @@ class CMLDataLakeConnector:
         seed: Optional[int] = None,
     ) -> pd.DataFrame:
         """
-        Get a random sample from a table.
+        Get a sample from a table.
 
         Args:
             table: Table name
             database: Database name
             n: Number of rows to sample
-            seed: Random seed for reproducibility
+            seed: Random seed (not used with SQL LIMIT)
 
         Returns:
             Pandas DataFrame with sampled data
         """
-        spark = self._get_spark()
-        full_table = f"{database}.{table}"
-
-        df = spark.table(full_table)
-
-        # Get approximate count for sampling fraction
-        total_count = df.count()
-
-        if total_count <= n:
-            return df.toPandas()
-
-        fraction = min(1.0, (n * 1.5) / total_count)  # Oversample slightly
-
-        if seed is not None:
-            sampled = df.sample(fraction=fraction, seed=seed).limit(n)
-        else:
-            sampled = df.sample(fraction=fraction).limit(n)
-
-        return sampled.toPandas()
-
-    def write_table(
-        self,
-        df: pd.DataFrame,
-        table: str,
-        database: str = "default",
-        mode: str = "overwrite",
-        format: str = "iceberg",
-    ) -> None:
-        """
-        Write a DataFrame to the data lake.
-
-        Args:
-            df: Pandas DataFrame to write
-            table: Target table name
-            database: Database name
-            mode: Write mode ('overwrite', 'append', 'error')
-            format: Table format ('iceberg', 'parquet', 'delta')
-        """
-        spark = self._get_spark()
-        full_table = f"{database}.{table}"
-
-        logger.info(f"Writing {len(df)} rows to {full_table}")
-
-        # Convert Pandas to Spark DataFrame
-        spark_df = spark.createDataFrame(df)
-
-        # Write to table
-        spark_df.write \
-            .format(format) \
-            .mode(mode) \
-            .saveAsTable(full_table)
-
-        logger.info(f"Successfully wrote to {full_table}")
+        # Simple limit-based sampling (TABLESAMPLE not always available)
+        return self.read_table(table, database, limit=n)
 
     def close(self):
-        """Stop the Spark session."""
-        if self._spark is not None:
-            self._spark.stop()
-            self._spark = None
-            self._initialized = False
-            logger.info("SparkSession stopped")
-
-
-class CMLDataConnection:
-    """
-    Helper class for CML Data Connections.
-
-    Uses CML's built-in data connection feature for simplified access.
-    """
-
-    def __init__(self, connection_name: str):
-        """
-        Initialize using a CML Data Connection.
-
-        Args:
-            connection_name: Name of the CML Data Connection
-        """
-        self.connection_name = connection_name
+        """Close the connection."""
         self._connection = None
-
-    def connect(self):
-        """Establish connection using CML Data Connections API."""
-        try:
-            import cml.data_v1 as cmldata
-
-            self._connection = cmldata.get_connection(self.connection_name)
-            logger.info(f"Connected via CML Data Connection: {self.connection_name}")
-            return self._connection
-
-        except ImportError:
-            logger.warning("CML data module not available. Running outside CML?")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to get CML Data Connection: {e}")
-            raise
-
-    def read_sql(self, query: str) -> pd.DataFrame:
-        """
-        Execute SQL query using the data connection.
-
-        Args:
-            query: SQL query string
-
-        Returns:
-            Pandas DataFrame with results
-        """
-        if self._connection is None:
-            self.connect()
-
-        return self._connection.get_pandas_dataframe(query)
+        self._initialized = False
+        logger.info("CML Data Connection closed")
 
 
-def get_connector(use_cml: bool = True, **kwargs):
+def get_connector(connection_name: Optional[str] = None):
     """
-    Factory function to get the appropriate connector.
+    Factory function to get the CML connector.
 
     Args:
-        use_cml: Whether to use CML native connector
-        **kwargs: Additional arguments for the connector
+        connection_name: Optional specific connection name
 
     Returns:
-        Data connector instance
+        CMLDataLakeConnector instance
     """
-    if use_cml:
-        try:
-            connector = CMLDataLakeConnector(**kwargs)
-            connector._get_spark()  # Test connection
-            return connector
-        except Exception as e:
-            logger.warning(f"CML connector failed: {e}. Falling back to mock.")
-
-    # Fallback to mock connector for local development
-    from app.services.cdp_connector import MockCDPConnector
-    return MockCDPConnector()
+    try:
+        connector = CMLDataLakeConnector(connection_name=connection_name)
+        connector._get_connection()  # Test connection
+        return connector
+    except Exception as e:
+        logger.warning(f"CML connector failed: {e}. Falling back to mock.")
+        from app.services.cdp_connector import MockCDPConnector
+        mock = MockCDPConnector()
+        mock.connect()
+        return mock

@@ -111,6 +111,21 @@ def info():
 
 # ============ Connection Endpoints ============
 
+@app.route("/api/connections", methods=["GET"])
+@handle_errors
+def list_connections():
+    """List available CML Data Connections."""
+    if not CML_AVAILABLE:
+        return jsonify({"connections": [], "error": "CML not available"})
+
+    try:
+        connector = CMLDataLakeConnector()
+        connections = connector.get_available_connections()
+        return jsonify({"connections": connections})
+    except Exception as e:
+        return jsonify({"connections": [], "error": str(e)})
+
+
 @app.route("/api/connect/demo", methods=["POST"])
 @handle_errors
 def connect_demo():
@@ -125,18 +140,27 @@ def connect_demo():
 @app.route("/api/connect/cml", methods=["POST"])
 @handle_errors
 def connect_cml():
-    """Connect to CML Data Lake."""
+    """Connect to Cloudera using CML Data Connections."""
     if not CML_AVAILABLE:
-        return jsonify({"error": "CML connector not available"}), 400
+        return jsonify({"error": "CML connector not available. Make sure you're running in Cloudera ML."}), 400
 
     data = request.get_json() or {}
-    catalog_name = data.get("catalog_name", "spark_catalog")
+    connection_name = data.get("connection_name")  # Optional, will auto-detect if not provided
 
-    connector = CMLDataLakeConnector(catalog_name=catalog_name)
-    connector._get_spark()  # Initialize
-    state["connector"] = connector
-    state["connector_type"] = "cml"
-    return jsonify({"status": "connected", "type": "cml", "catalog": catalog_name})
+    try:
+        connector = CMLDataLakeConnector(connection_name=connection_name)
+        connector._get_connection()  # Initialize and validate
+        state["connector"] = connector
+        state["connector_type"] = "cml"
+
+        return jsonify({
+            "status": "connected",
+            "type": "cml",
+            "connection_name": connector.connection_name,
+            "available_connections": connector._available_connections,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/api/disconnect", methods=["POST"])
