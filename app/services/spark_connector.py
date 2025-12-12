@@ -1,7 +1,7 @@
 """Spark connector for Cloudera Data Lake access.
 
-Uses PySpark to connect to Hive metastore and read data from the Data Lake.
-This is the recommended connector for Data Lake access in CML.
+Uses CML Data Connection to get a pre-configured Spark session
+for accessing Data Lake tables including Iceberg.
 """
 
 from typing import Any, Dict, List, Optional
@@ -12,44 +12,64 @@ from loguru import logger
 
 class SparkConnector:
     """
-    Spark-based connector for Cloudera Data Lake.
+    Spark-based connector for Cloudera Data Lake via CML Data Connection.
 
-    Uses PySpark with Hive metastore for accessing Data Lake tables,
-    including Iceberg tables.
+    Uses CML's data connection to get a properly configured Spark session
+    with access to Hive metastore and Iceberg tables.
     """
 
-    def __init__(self, app_name: str = "SyntheticDataGenerator"):
+    def __init__(self, connection_name: Optional[str] = None):
         """
         Initialize the Spark connector.
 
         Args:
-            app_name: Name for the Spark application
+            connection_name: CML Data Connection name (required for Data Lake)
         """
-        self.app_name = app_name
+        self.connection_name = connection_name
         self._spark = None
+        self._connection = None
         self._initialized = False
         self._connection_info = {}
 
     def _get_spark(self):
-        """Get or create SparkSession."""
+        """Get Spark session from CML Data Connection."""
         if self._spark is not None:
             return self._spark
 
         try:
-            from pyspark.sql import SparkSession
+            import cml.data_v1 as cmldata
+            import os
 
-            # In CML, Spark is pre-configured with Hive metastore
-            self._spark = (
-                SparkSession.builder
-                .appName(self.app_name)
-                .enableHiveSupport()
-                .getOrCreate()
-            )
+            # Get connection name from parameter or environment
+            conn_name = self.connection_name or os.environ.get('CML_CONNECTION_NAME')
 
+            if not conn_name:
+                # Try to list available connections
+                if hasattr(cmldata, 'list_connections'):
+                    connections = cmldata.list_connections()
+                    if connections:
+                        conn_name = connections[0]
+                        logger.info(f"Auto-selected CML connection: {conn_name}")
+
+            if not conn_name:
+                raise ValueError(
+                    "No CML Data Connection specified. "
+                    "Set CML_CONNECTION_NAME environment variable."
+                )
+
+            # Get connection and Spark session
+            logger.info(f"Getting Spark session from CML connection: {conn_name}")
+            self._connection = cmldata.get_connection(conn_name)
+            self._spark = self._connection.get_spark_session()
+
+            # Configure for Iceberg timestamp handling
+            self._spark.conf.set("spark.sql.iceberg.handle-timestamp-without-timezone", "true")
+
+            self.connection_name = conn_name
             self._initialized = True
             self._connection_info = {
+                "connection_name": conn_name,
                 "spark_version": self._spark.version,
-                "app_name": self.app_name,
                 "app_id": self._spark.sparkContext.applicationId,
             }
 
@@ -57,10 +77,10 @@ class SparkConnector:
             return self._spark
 
         except ImportError as e:
-            logger.error("PySpark not available. Install with: pip install pyspark")
-            raise RuntimeError(f"PySpark not installed: {e}")
+            logger.error("CML data module not available")
+            raise RuntimeError(f"CML not available: {e}")
         except Exception as e:
-            logger.error(f"Failed to create Spark session: {e}")
+            logger.error(f"Failed to get Spark session: {e}")
             raise
 
     def is_connected(self) -> bool:
@@ -73,10 +93,10 @@ class SparkConnector:
             self._get_spark()
 
         return {
-            "name": "spark",
+            "name": self.connection_name or "spark",
             "type": "spark",
             "type_label": "Spark (Data Lake)",
-            "available_connections": ["spark"],
+            "available_connections": [self.connection_name] if self.connection_name else ["spark"],
             "details": self._connection_info,
         }
 
@@ -292,16 +312,16 @@ class SparkConnector:
             logger.info("Spark session stopped")
 
 
-def get_spark_connector(app_name: str = "SyntheticDataGenerator") -> SparkConnector:
+def get_spark_connector(connection_name: Optional[str] = None) -> SparkConnector:
     """
     Factory function to get the Spark connector.
 
     Args:
-        app_name: Name for the Spark application
+        connection_name: CML Data Connection name (optional, will auto-detect)
 
     Returns:
         SparkConnector instance
     """
-    connector = SparkConnector(app_name=app_name)
+    connector = SparkConnector(connection_name=connection_name)
     connector._get_spark()  # Initialize Spark session
     return connector
