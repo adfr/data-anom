@@ -310,6 +310,14 @@ class SparkConnector:
             import numpy as np
             if not hasattr(np, 'bool'):
                 np.bool = np.bool_
+                np.object = object
+                np.int = np.int_
+                np.float = np.float_
+
+            # Enable Arrow for faster conversion
+            spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+            spark.conf.set("spark.sql.execution.arrow.pyspark.fallback.enabled", "true")
+
             pdf = spark_df.toPandas()
             logger.info(f"toPandas done: {time.time() - t2:.2f}s (total: {time.time() - t0:.2f}s)")
             return pdf
