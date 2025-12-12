@@ -152,7 +152,7 @@ def connect_demo():
 @app.route("/api/connect/cml", methods=["POST"])
 @handle_errors
 def connect_cml():
-    """Connect to Cloudera using CML Data Connections (Virtual Data Warehouse or Data Lake)."""
+    """Connect to Cloudera using CML Data Connections or Spark."""
     if not CML_AVAILABLE:
         return jsonify({"error": "CML connector not available. Make sure you're running in Cloudera ML."}), 400
 
@@ -161,8 +161,9 @@ def connect_cml():
     connection_name = data.get("connection_name") or os.environ.get("CML_CONNECTION_NAME")
 
     try:
-        connector = CMLDataLakeConnector(connection_name=connection_name)
-        connector._get_connection()  # Initialize and validate
+        # Use get_connector() which checks CML_CONNECTION_TYPE and returns appropriate connector
+        from app.services.cml_connector import get_connector
+        connector = get_connector(connection_name=connection_name)
         state["connector"] = connector
         state["connector_type"] = "cml"
 
@@ -172,10 +173,10 @@ def connect_cml():
         return jsonify({
             "status": "connected",
             "type": "cml",
-            "connection_name": connector.connection_name,
+            "connection_name": conn_info.get("name", "spark"),
             "connection_type": conn_info.get("type"),
             "connection_type_label": conn_info.get("type_label"),
-            "available_connections": connector.get_available_connections(),
+            "available_connections": conn_info.get("available_connections", []),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 400
