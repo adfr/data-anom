@@ -52,6 +52,34 @@ class CMLDataConnector:
         else:
             return 'unknown'
 
+    def _list_available_connections(self) -> List[str]:
+        """List available CML Data Connections (handles different API versions)."""
+        try:
+            import cml.data_v1 as cmldata
+
+            # Try different API methods based on CML version
+            # Method 1: list_connections() (newer API)
+            if hasattr(cmldata, 'list_connections'):
+                return cmldata.list_connections()
+
+            # Method 2: Check for Connection class with list method
+            if hasattr(cmldata, 'Connection') and hasattr(cmldata.Connection, 'list'):
+                return cmldata.Connection.list()
+
+            # Method 3: Try to get connections from environment or config
+            import os
+            env_conn = os.environ.get('CML_CONNECTION_NAME')
+            if env_conn:
+                return [env_conn]
+
+            # Method 4: Return empty and let user specify connection name
+            logger.warning("Could not list CML connections automatically. Please specify connection_name.")
+            return []
+
+        except Exception as e:
+            logger.warning(f"Error listing connections: {e}")
+            return []
+
     def _get_connection(self):
         """Get or create CML Data Connection."""
         if self._connection is not None:
@@ -60,30 +88,24 @@ class CMLDataConnector:
         try:
             import cml.data_v1 as cmldata
 
-            # List available connections
-            self._available_connections = cmldata.list_connections()
+            # Try to list available connections (API varies by CML version)
+            self._available_connections = self._list_available_connections()
             logger.info(f"Available CML Data Connections: {self._available_connections}")
-
-            if not self._available_connections:
-                raise ValueError(
-                    "No CML Data Connections configured. "
-                    "Please add a data connection in the CML project settings:\n"
-                    "1. Go to Project Settings > Data Connections\n"
-                    "2. Add a connection to your Virtual Data Warehouse or Data Lake\n"
-                    "3. Restart the application"
-                )
 
             # Use specified connection or auto-select best one
             if self.connection_name:
                 conn_name = self.connection_name
-                if conn_name not in self._available_connections:
-                    raise ValueError(
-                        f"Connection '{conn_name}' not found. "
-                        f"Available connections: {self._available_connections}"
-                    )
-            else:
+            elif self._available_connections:
                 # Priority: CDW > DataLake > First available
                 conn_name = self._auto_select_connection()
+            else:
+                raise ValueError(
+                    "No CML Data Connection specified. "
+                    "Please either:\n"
+                    "1. Set CML_CONNECTION_NAME environment variable, or\n"
+                    "2. Provide connection_name parameter, or\n"
+                    "3. Add a data connection in CML Project Settings > Data Connections"
+                )
 
             logger.info(f"Using CML Data Connection: {conn_name}")
             self._connection = cmldata.get_connection(conn_name)
@@ -176,8 +198,7 @@ class CMLDataConnector:
     def get_available_connections(self) -> List[Dict[str, Any]]:
         """Get list of available CML Data Connections with their types."""
         try:
-            import cml.data_v1 as cmldata
-            connections = cmldata.list_connections()
+            connections = self._list_available_connections()
             return [
                 {
                     "name": conn,
