@@ -483,7 +483,7 @@ def get_connector(connection_name: Optional[str] = None):
     if conn_type == 'spark':
         try:
             from app.services.spark_connector import SparkConnector
-            connector = SparkConnector()
+            connector = SparkConnector(connection_name=connection_name)
             connector._get_spark()  # Test connection
             logger.info("Using Spark connector for Data Lake access")
             return connector
