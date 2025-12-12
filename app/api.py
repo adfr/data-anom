@@ -123,14 +123,17 @@ def info():
 @app.route("/api/connections", methods=["GET"])
 @handle_errors
 def list_connections():
-    """List available CML Data Connections."""
+    """List available CML Data Connections with their types."""
     if not CML_AVAILABLE:
         return jsonify({"connections": [], "error": "CML not available"})
 
     try:
         connector = CMLDataLakeConnector()
         connections = connector.get_available_connections()
-        return jsonify({"connections": connections})
+        return jsonify({
+            "connections": connections,
+            "default_connection": os.environ.get("CML_CONNECTION_NAME"),
+        })
     except Exception as e:
         return jsonify({"connections": [], "error": str(e)})
 
@@ -149,12 +152,13 @@ def connect_demo():
 @app.route("/api/connect/cml", methods=["POST"])
 @handle_errors
 def connect_cml():
-    """Connect to Cloudera using CML Data Connections."""
+    """Connect to Cloudera using CML Data Connections (Virtual Data Warehouse or Data Lake)."""
     if not CML_AVAILABLE:
         return jsonify({"error": "CML connector not available. Make sure you're running in Cloudera ML."}), 400
 
     data = request.get_json() or {}
-    connection_name = data.get("connection_name")  # Optional, will auto-detect if not provided
+    # Use provided connection name, env variable, or auto-detect
+    connection_name = data.get("connection_name") or os.environ.get("CML_CONNECTION_NAME")
 
     try:
         connector = CMLDataLakeConnector(connection_name=connection_name)
@@ -162,11 +166,16 @@ def connect_cml():
         state["connector"] = connector
         state["connector_type"] = "cml"
 
+        # Get connection info
+        conn_info = connector.get_connection_info()
+
         return jsonify({
             "status": "connected",
             "type": "cml",
             "connection_name": connector.connection_name,
-            "available_connections": connector._available_connections,
+            "connection_type": conn_info.get("type"),
+            "connection_type_label": conn_info.get("type_label"),
+            "available_connections": connector.get_available_connections(),
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 400
