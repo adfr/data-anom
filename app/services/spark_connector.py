@@ -306,6 +306,10 @@ class SparkConnector:
             logger.info(f"SQL executed: {time.time() - t1:.2f}s")
 
             t2 = time.time()
+            # Workaround for numpy/PySpark compatibility (np.bool removed in numpy 1.24+)
+            import numpy as np
+            if not hasattr(np, 'bool'):
+                np.bool = np.bool_
             pdf = spark_df.toPandas()
             logger.info(f"toPandas done: {time.time() - t2:.2f}s (total: {time.time() - t0:.2f}s)")
             return pdf
