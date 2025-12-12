@@ -237,7 +237,7 @@ def load_table(database, table):
         return jsonify({"error": "Not connected"}), 400
 
     data = request.get_json() or {}
-    limit = data.get("limit", 10000)
+    limit = data.get("limit", 200)  # Default 200 for Spark performance
 
     # Load data
     if hasattr(state["connector"], "get_sample"):

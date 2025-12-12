@@ -137,6 +137,7 @@
             const [tables, setTables] = useState([]);
             const [selectedDb, setSelectedDb] = useState('');
             const [selectedTable, setSelectedTable] = useState('');
+            const [tableInput, setTableInput] = useState('');
             const [loadingDbs, setLoadingDbs] = useState(false);
             const [loadingTables, setLoadingTables] = useState(false);
             const [loadingData, setLoadingData] = useState(false);
@@ -145,18 +146,6 @@
                 setConnecting(true);
                 try {
                     await onConnect(type);
-                    // After connecting, load databases
-                    if (type === 'cml') {
-                        setLoadingDbs(true);
-                        try {
-                            const result = await api.get('/databases');
-                            setDatabases(result.databases || []);
-                        } catch (e) {
-                            console.error('Failed to load databases:', e);
-                        } finally {
-                            setLoadingDbs(false);
-                        }
-                    }
                 } finally {
                     setConnecting(false);
                 }
@@ -184,6 +173,17 @@
                 setLoadingData(true);
                 try {
                     await onLoadTable(selectedDb, selectedTable);
+                } finally {
+                    setLoadingData(false);
+                }
+            };
+
+            const handleLoadTableDirect = async () => {
+                if (!tableInput.includes('.')) return;
+                const [db, table] = tableInput.split('.', 2);
+                setLoadingData(true);
+                try {
+                    await onLoadTable(db, table);
                 } finally {
                     setLoadingData(false);
                 }
@@ -232,49 +232,27 @@
                                 )}
                             </>
                         ) : connectionInfo.type === 'cml' ? (
-                            /* Database/Table Browser */
+                            /* Direct Table Input */
                             <div className="space-y-3">
                                 <div>
-                                    <label className="block text-sm text-gray-600 mb-1">Database</label>
-                                    <select
-                                        value={selectedDb}
-                                        onChange={(e) => handleDbChange(e.target.value)}
-                                        disabled={loadingDbs}
+                                    <label className="block text-sm text-gray-600 mb-1">Table (database.table)</label>
+                                    <input
+                                        type="text"
+                                        value={tableInput}
+                                        onChange={(e) => setTableInput(e.target.value)}
+                                        placeholder="default.my_table"
                                         className="w-full border rounded px-3 py-2 text-sm"
-                                    >
-                                        <option value="">{loadingDbs ? 'Loading...' : 'Select database'}</option>
-                                        {databases.map(db => (
-                                            <option key={db} value={db}>{db}</option>
-                                        ))}
-                                    </select>
+                                    />
+                                    <p className="text-xs text-gray-400 mt-1">Example: default.transactions_v2</p>
                                 </div>
 
-                                {selectedDb && (
-                                    <div>
-                                        <label className="block text-sm text-gray-600 mb-1">Table</label>
-                                        <select
-                                            value={selectedTable}
-                                            onChange={(e) => setSelectedTable(e.target.value)}
-                                            disabled={loadingTables}
-                                            className="w-full border rounded px-3 py-2 text-sm"
-                                        >
-                                            <option value="">{loadingTables ? 'Loading...' : 'Select table'}</option>
-                                            {tables.map(t => (
-                                                <option key={t} value={t}>{t}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                )}
-
-                                {selectedDb && selectedTable && (
-                                    <button
-                                        onClick={handleLoadTable}
-                                        disabled={loadingData}
-                                        className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
-                                    >
-                                        {loadingData ? 'Loading...' : 'Load Table'}
-                                    </button>
-                                )}
+                                <button
+                                    onClick={handleLoadTableDirect}
+                                    disabled={loadingData || !tableInput.includes('.')}
+                                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                                >
+                                    {loadingData ? 'Loading...' : 'Load Table'}
+                                </button>
                             </div>
                         ) : null}
 

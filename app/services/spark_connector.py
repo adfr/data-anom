@@ -110,7 +110,8 @@ class SparkConnector:
         spark = self._get_spark()
 
         try:
-            df = spark.sql("SHOW DATABASES")
+            # Limit to 100 databases for performance
+            df = spark.sql("SHOW DATABASES").limit(100)
             # Get the first column regardless of name (namespace, databaseName, etc.)
             return [row[0] for row in df.collect()]
         except Exception as e:
@@ -130,7 +131,8 @@ class SparkConnector:
         spark = self._get_spark()
 
         try:
-            df = spark.sql(f"SHOW TABLES IN {database}")
+            # Limit to 200 tables for performance
+            df = spark.sql(f"SHOW TABLES IN {database}").limit(200)
             # tableName is usually second column (first is database)
             return [row[1] if len(row) > 1 else row[0] for row in df.collect()]
         except Exception as e:
@@ -273,7 +275,7 @@ class SparkConnector:
         self,
         table: str,
         database: str = "default",
-        n: int = 1000,
+        n: int = 200,
         seed: Optional[int] = None,
     ) -> pd.DataFrame:
         """
@@ -282,26 +284,24 @@ class SparkConnector:
         Args:
             table: Table name
             database: Database name
-            n: Number of rows to sample
-            seed: Random seed for sampling
+            n: Number of rows to sample (default 200)
+            seed: Random seed (unused, for API compatibility)
 
         Returns:
             Pandas DataFrame with sampled data
         """
         spark = self._get_spark()
 
-        try:
-            # Use Spark's TABLESAMPLE for efficient sampling
-            if seed is not None:
-                query = f"SELECT * FROM {database}.{table} TABLESAMPLE ({n} ROWS)"
-            else:
-                query = f"SELECT * FROM {database}.{table} LIMIT {n}"
+        # Simple LIMIT query - fast and reliable
+        query = f"SELECT * FROM {database}.{table} LIMIT {n}"
+        logger.info(f"Executing: {query}")
 
+        try:
             spark_df = spark.sql(query)
             return spark_df.toPandas()
-        except Exception:
-            # Fall back to simple LIMIT
-            return self.read_table(table, database, limit=n)
+        except Exception as e:
+            logger.error(f"Error sampling {database}.{table}: {e}")
+            raise
 
     def close(self):
         """Stop the Spark session."""
