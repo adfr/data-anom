@@ -1,7 +1,7 @@
 """Cloudera AI (CML) native data connector using CML Data Connections.
 
 Supports:
-- Virtual Data Warehouse (CDW) - Impala/Hive
+- Virtual Data Warehouse (CDW) - Impala/Hive/Trino
 - Data Lake (Hive/Impala)
 - Iceberg tables
 """
@@ -46,7 +46,7 @@ class CMLDataConnector:
         import os
         # Use explicit environment variable if set
         conn_type = os.environ.get('CML_CONNECTION_TYPE', 'impala').lower()
-        if conn_type in ('impala', 'hive', 'datalake'):
+        if conn_type in ('impala', 'hive', 'trino', 'datalake'):
             return conn_type
         # Default to Impala (most common for CDW)
         return 'impala'
@@ -195,6 +195,8 @@ class CMLDataConnector:
         """Get a human-readable label for the connection type."""
         labels = {
             'impala': 'Impala Virtual Warehouse',
+            'trino': 'Trino Virtual Warehouse',
+            'hive': 'Hive Virtual Warehouse',
             'cdw': 'Virtual Data Warehouse (CDW)',
             'datalake': 'Data Lake',
             'unknown': 'Data Connection',
@@ -211,6 +213,8 @@ class CMLDataConnector:
                     "type": self._detect_connection_type(conn),
                     "type_label": {
                         'impala': 'Impala Virtual Warehouse',
+                        'trino': 'Trino Virtual Warehouse',
+                        'hive': 'Hive Virtual Warehouse',
                         'cdw': 'Virtual Data Warehouse',
                         'datalake': 'Data Lake',
                         'unknown': 'Data Connection',
@@ -427,12 +431,16 @@ class CMLDataConnector:
         Returns:
             Pandas DataFrame with sampled data
         """
-        # Try TABLESAMPLE for Impala/CDW (more efficient for large tables)
-        if self._connection_type in ('impala', 'cdw'):
+        # Try TABLESAMPLE for Impala/CDW/Trino (more efficient for large tables)
+        if self._connection_type in ('impala', 'cdw', 'trino'):
             try:
                 conn = self._get_connection()
-                # TABLESAMPLE syntax for Impala
-                query = f"SELECT * FROM {database}.{table} TABLESAMPLE SYSTEM({min(n * 100 // 1000, 100)}) LIMIT {n}"
+                if self._connection_type == 'trino':
+                    # Trino uses TABLESAMPLE BERNOULLI or SYSTEM
+                    query = f"SELECT * FROM {database}.{table} TABLESAMPLE BERNOULLI({min(n * 100 // 1000, 100)}) LIMIT {n}"
+                else:
+                    # TABLESAMPLE syntax for Impala
+                    query = f"SELECT * FROM {database}.{table} TABLESAMPLE SYSTEM({min(n * 100 // 1000, 100)}) LIMIT {n}"
                 return conn.get_pandas_dataframe(query)
             except Exception:
                 # Fall back to simple LIMIT
