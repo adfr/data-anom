@@ -535,7 +535,7 @@ def compare_stats():
 
         row = {"column": col}
 
-        if pd.api.types.is_numeric_dtype(original[col]):
+        if pd.api.types.is_numeric_dtype(original[col]) and pd.api.types.is_numeric_dtype(synthetic[col]):
             row.update({
                 "orig_mean": float(original[col].mean()) if not pd.isna(original[col].mean()) else None,
                 "synth_mean": float(synthetic[col].mean()) if not pd.isna(synthetic[col].mean()) else None,
@@ -568,7 +568,7 @@ def compare_distribution(column):
     if column not in original.columns or column not in synthetic.columns:
         return jsonify({"error": f"Column {column} not found"}), 400
 
-    if pd.api.types.is_numeric_dtype(original[column]):
+    if pd.api.types.is_numeric_dtype(original[column]) and pd.api.types.is_numeric_dtype(synthetic[column]):
         # Histogram data
         orig_values = original[column].dropna().tolist()
         synth_values = synthetic[column].dropna().tolist()
