@@ -131,15 +131,61 @@
         }
 
         // Sidebar Component
-        function Sidebar({ appInfo, onConnect, onLoadSample, onFileUpload, settings, setSettings }) {
+        function Sidebar({ appInfo, onConnect, onLoadSample, onFileUpload, onLoadTable, settings, setSettings, connectionInfo }) {
             const [connecting, setConnecting] = useState(false);
+            const [databases, setDatabases] = useState([]);
+            const [tables, setTables] = useState([]);
+            const [selectedDb, setSelectedDb] = useState('');
+            const [selectedTable, setSelectedTable] = useState('');
+            const [loadingDbs, setLoadingDbs] = useState(false);
+            const [loadingTables, setLoadingTables] = useState(false);
+            const [loadingData, setLoadingData] = useState(false);
 
             const handleConnect = async (type) => {
                 setConnecting(true);
                 try {
                     await onConnect(type);
+                    // After connecting, load databases
+                    if (type === 'cml') {
+                        setLoadingDbs(true);
+                        try {
+                            const result = await api.get('/databases');
+                            setDatabases(result.databases || []);
+                        } catch (e) {
+                            console.error('Failed to load databases:', e);
+                        } finally {
+                            setLoadingDbs(false);
+                        }
+                    }
                 } finally {
                     setConnecting(false);
+                }
+            };
+
+            const handleDbChange = async (db) => {
+                setSelectedDb(db);
+                setSelectedTable('');
+                setTables([]);
+                if (db) {
+                    setLoadingTables(true);
+                    try {
+                        const result = await api.get(`/tables/${db}`);
+                        setTables(result.tables || []);
+                    } catch (e) {
+                        console.error('Failed to load tables:', e);
+                    } finally {
+                        setLoadingTables(false);
+                    }
+                }
+            };
+
+            const handleLoadTable = async () => {
+                if (!selectedDb || !selectedTable) return;
+                setLoadingData(true);
+                try {
+                    await onLoadTable(selectedDb, selectedTable);
+                } finally {
+                    setLoadingData(false);
                 }
             };
 
@@ -150,29 +196,87 @@
                         <p className="text-sm text-gray-500 mt-1">Generate privacy-safe data</p>
                     </div>
 
+                    {/* Connection Status */}
+                    {connectionInfo && (
+                        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+                            <p className="text-sm font-medium text-green-800">Connected</p>
+                            <p className="text-xs text-green-600">{connectionInfo.connection_type_label || connectionInfo.type}</p>
+                            <p className="text-xs text-green-600">{connectionInfo.connection_name}</p>
+                        </div>
+                    )}
+
                     {/* Data Source */}
                     <div className="mb-6">
                         <h2 className="font-semibold text-gray-700 mb-3">Data Source</h2>
 
-                        {/* Demo Mode */}
-                        <button
-                            onClick={() => handleConnect('demo')}
-                            disabled={connecting}
-                            className="w-full mb-2 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
-                        >
-                            {connecting ? 'Connecting...' : 'Connect Demo'}
-                        </button>
+                        {!connectionInfo ? (
+                            <>
+                                {/* Demo Mode */}
+                                <button
+                                    onClick={() => handleConnect('demo')}
+                                    disabled={connecting}
+                                    className="w-full mb-2 bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                                >
+                                    {connecting ? 'Connecting...' : 'Connect Demo'}
+                                </button>
 
-                        {/* CML Connect */}
-                        {appInfo?.cml_connector_available && (
-                            <button
-                                onClick={() => handleConnect('cml')}
-                                disabled={connecting}
-                                className="w-full mb-2 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded disabled:opacity-50"
-                            >
-                                Connect to Cloudera
-                            </button>
-                        )}
+                                {/* CML Connect */}
+                                {appInfo?.cml_connector_available && (
+                                    <button
+                                        onClick={() => handleConnect('cml')}
+                                        disabled={connecting}
+                                        className="w-full mb-2 bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                                    >
+                                        Connect to Cloudera
+                                    </button>
+                                )}
+                            </>
+                        ) : connectionInfo.type === 'cml' ? (
+                            /* Database/Table Browser */
+                            <div className="space-y-3">
+                                <div>
+                                    <label className="block text-sm text-gray-600 mb-1">Database</label>
+                                    <select
+                                        value={selectedDb}
+                                        onChange={(e) => handleDbChange(e.target.value)}
+                                        disabled={loadingDbs}
+                                        className="w-full border rounded px-3 py-2 text-sm"
+                                    >
+                                        <option value="">{loadingDbs ? 'Loading...' : 'Select database'}</option>
+                                        {databases.map(db => (
+                                            <option key={db} value={db}>{db}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {selectedDb && (
+                                    <div>
+                                        <label className="block text-sm text-gray-600 mb-1">Table</label>
+                                        <select
+                                            value={selectedTable}
+                                            onChange={(e) => setSelectedTable(e.target.value)}
+                                            disabled={loadingTables}
+                                            className="w-full border rounded px-3 py-2 text-sm"
+                                        >
+                                            <option value="">{loadingTables ? 'Loading...' : 'Select table'}</option>
+                                            {tables.map(t => (
+                                                <option key={t} value={t}>{t}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {selectedDb && selectedTable && (
+                                    <button
+                                        onClick={handleLoadTable}
+                                        disabled={loadingData}
+                                        className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded disabled:opacity-50"
+                                    >
+                                        {loadingData ? 'Loading...' : 'Load Table'}
+                                    </button>
+                                )}
+                            </div>
+                        ) : null}
 
                         {/* Sample Data */}
                         <div className="mt-4">
@@ -825,6 +929,7 @@
         // Main App Component
         function App() {
             const [appInfo, setAppInfo] = useState(null);
+            const [connectionInfo, setConnectionInfo] = useState(null);
             const [state, setState] = useState({
                 sourceData: null,
                 profile: null,
@@ -852,14 +957,26 @@
             const handleConnect = async (type) => {
                 try {
                     setError(null);
+                    let connResult;
                     if (type === 'demo') {
-                        await api.post('/connect/demo');
+                        connResult = await api.post('/connect/demo');
                     } else if (type === 'cml') {
-                        await api.post('/connect/cml');
+                        connResult = await api.post('/connect/cml');
                     }
+                    setConnectionInfo(connResult);
                     // Refresh info
                     const info = await api.get('/info');
                     setAppInfo(info);
+                } catch (e) {
+                    setError(e.message);
+                }
+            };
+
+            const handleLoadTable = async (database, table) => {
+                try {
+                    setError(null);
+                    const data = await api.post(`/table/${database}/${table}/load`, { limit: 10000 });
+                    setState(s => ({...s, sourceData: data, profile: null, syntheticData: null, tokenizedData: null}));
                 } catch (e) {
                     setError(e.message);
                 }
@@ -974,9 +1091,11 @@
                 <div className="flex h-screen">
                     <Sidebar
                         appInfo={appInfo}
+                        connectionInfo={connectionInfo}
                         onConnect={handleConnect}
                         onLoadSample={handleLoadSample}
                         onFileUpload={handleFileUpload}
+                        onLoadTable={handleLoadTable}
                         settings={settings}
                         setSettings={setSettings}
                     />
