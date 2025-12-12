@@ -245,18 +245,20 @@
                     <div className="text-xs text-gray-500">
                         <p>CML: {appInfo?.cml_environment ? 'Yes' : 'No'}</p>
                         <p>SDV: {appInfo?.sdv_available ? 'Available' : 'Not installed'}</p>
+                        <p>LLM (Claude): {appInfo?.llm_available ? 'Available' : 'API key needed'}</p>
                     </div>
                 </div>
             );
         }
 
         // Main Content Component
-        function MainContent({ state, onProfile, onGenerate, onDownload }) {
+        function MainContent({ state, appInfo, onProfile, onGenerate, onDownload, onTokenize, onUseTokenizedAsSource }) {
             const [activeTab, setActiveTab] = useState('preview');
 
             const tabs = [
                 { id: 'preview', label: 'Data Preview' },
                 { id: 'profile', label: 'Profile' },
+                { id: 'tokenize', label: 'Tokenize' },
                 { id: 'generate', label: 'Generate' },
                 { id: 'results', label: 'Results' },
             ];
@@ -292,6 +294,15 @@
                             columnConfig={state.columnConfig}
                             onProfile={onProfile}
                             hasData={!!state.sourceData}
+                        />
+                    )}
+                    {activeTab === 'tokenize' && (
+                        <TokenizeTab
+                            hasData={!!state.sourceData}
+                            tokenizedData={state.tokenizedData}
+                            llmAvailable={appInfo?.llm_available}
+                            onTokenize={onTokenize}
+                            onUseAsSource={onUseTokenizedAsSource}
                         />
                     )}
                     {activeTab === 'generate' && (
@@ -432,6 +443,283 @@
             );
         }
 
+        function TokenizeTab({ hasData, tokenizedData, llmAvailable, onTokenize, onUseAsSource }) {
+            const [secretKey, setSecretKey] = useState('');
+            const [apiKey, setApiKey] = useState('');
+            const [sensitiveColumns, setSensitiveColumns] = useState({});
+            const [selectedColumns, setSelectedColumns] = useState({});
+            const [detecting, setDetecting] = useState(false);
+            const [tokenizing, setTokenizing] = useState(false);
+            const [useLlm, setUseLlm] = useState(false);
+            const [comparison, setComparison] = useState([]);
+            const [detectionMethod, setDetectionMethod] = useState(null);
+
+            const dataTypes = [
+                { value: 'credit_card', label: 'Credit Card' },
+                { value: 'ssn', label: 'SSN' },
+                { value: 'phone', label: 'Phone' },
+                { value: 'email', label: 'Email' },
+                { value: 'name', label: 'Name' },
+                { value: 'date', label: 'Date' },
+                { value: 'address', label: 'Address' },
+                { value: 'alphanumeric', label: 'Alphanumeric' },
+            ];
+
+            const handleGenerateKey = async () => {
+                try {
+                    const result = await api.post('/tokenize/generate-key');
+                    setSecretKey(result.key);
+                } catch (e) {
+                    alert('Error generating key: ' + e.message);
+                }
+            };
+
+            const handleDetect = async () => {
+                setDetecting(true);
+                try {
+                    const result = await api.post('/tokenize/detect', {
+                        use_llm: useLlm,
+                        api_key: apiKey || undefined,
+                    });
+                    setSensitiveColumns(result.sensitive_columns);
+                    setSelectedColumns(result.sensitive_columns);
+                    setDetectionMethod(result.detection_method);
+                } catch (e) {
+                    alert('Error detecting columns: ' + e.message);
+                } finally {
+                    setDetecting(false);
+                }
+            };
+
+            const handleColumnToggle = (col) => {
+                setSelectedColumns(prev => {
+                    const newSelected = {...prev};
+                    if (newSelected[col]) {
+                        delete newSelected[col];
+                    } else {
+                        newSelected[col] = sensitiveColumns[col] || 'alphanumeric';
+                    }
+                    return newSelected;
+                });
+            };
+
+            const handleTypeChange = (col, type) => {
+                setSelectedColumns(prev => ({...prev, [col]: type}));
+            };
+
+            const handleTokenize = async () => {
+                if (!secretKey) {
+                    alert('Please enter or generate a secret key');
+                    return;
+                }
+                if (Object.keys(selectedColumns).length === 0) {
+                    alert('Please select columns to tokenize');
+                    return;
+                }
+
+                setTokenizing(true);
+                try {
+                    const result = await onTokenize(secretKey, selectedColumns);
+                    if (result.comparison) {
+                        setComparison(result.comparison);
+                    }
+                } finally {
+                    setTokenizing(false);
+                }
+            };
+
+            const handleDownloadTokenized = (format) => {
+                window.open(`/api/tokenize/download/${format}`, '_blank');
+            };
+
+            if (!hasData) {
+                return <div className="text-center py-12 text-gray-500">Load data first</div>;
+            }
+
+            return (
+                <div className="space-y-6">
+                    {/* Key Management */}
+                    <div className="bg-white p-4 rounded shadow">
+                        <h3 className="font-semibold mb-3">Encryption Key</h3>
+                        <p className="text-sm text-gray-500 mb-3">
+                            The secret key is used to encrypt sensitive data. Save this key securely - you'll need it to decrypt the data later.
+                        </p>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                value={secretKey}
+                                onChange={(e) => setSecretKey(e.target.value)}
+                                placeholder="Enter or generate a secret key..."
+                                className="flex-1 border rounded px-3 py-2 font-mono text-sm"
+                            />
+                            <button
+                                onClick={handleGenerateKey}
+                                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded"
+                            >
+                                Generate Key
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Column Detection */}
+                    <div className="bg-white p-4 rounded shadow">
+                        <h3 className="font-semibold mb-3">Detect Sensitive Columns</h3>
+
+                        {/* LLM Option */}
+                        <div className="mb-4">
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={useLlm}
+                                    onChange={(e) => setUseLlm(e.target.checked)}
+                                    className="rounded"
+                                />
+                                <span className="text-sm">Use AI (Claude) for smart detection</span>
+                                {llmAvailable && <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">Available</span>}
+                            </label>
+
+                            {useLlm && (
+                                <div className="mt-2 ml-6">
+                                    <label className="block text-sm text-gray-600 mb-1">Anthropic API Key (optional if set in env)</label>
+                                    <input
+                                        type="password"
+                                        value={apiKey}
+                                        onChange={(e) => setApiKey(e.target.value)}
+                                        placeholder="sk-ant-..."
+                                        className="w-full max-w-md border rounded px-3 py-2 text-sm"
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={handleDetect}
+                            disabled={detecting}
+                            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50"
+                        >
+                            {detecting ? 'Detecting...' : 'Detect Sensitive Columns'}
+                        </button>
+
+                        {detectionMethod && (
+                            <span className="ml-4 text-sm text-gray-500">
+                                Method: <span className="font-medium">{detectionMethod === 'llm' ? 'AI (Claude)' : 'Rule-based'}</span>
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Column Selection */}
+                    {Object.keys(sensitiveColumns).length > 0 && (
+                        <div className="bg-white p-4 rounded shadow">
+                            <h3 className="font-semibold mb-3">Select Columns to Tokenize</h3>
+                            <div className="space-y-2 max-h-64 overflow-y-auto">
+                                {Object.entries(sensitiveColumns).map(([col, detectedType]) => (
+                                    <div key={col} className="flex items-center gap-3 p-2 border rounded">
+                                        <input
+                                            type="checkbox"
+                                            checked={!!selectedColumns[col]}
+                                            onChange={() => handleColumnToggle(col)}
+                                            className="rounded"
+                                        />
+                                        <span className="flex-1 font-medium">{col}</span>
+                                        <select
+                                            value={selectedColumns[col] || detectedType}
+                                            onChange={(e) => handleTypeChange(col, e.target.value)}
+                                            disabled={!selectedColumns[col]}
+                                            className="border rounded px-2 py-1 text-sm"
+                                        >
+                                            {dataTypes.map(dt => (
+                                                <option key={dt.value} value={dt.value}>{dt.label}</option>
+                                            ))}
+                                        </select>
+                                        <span className="text-xs text-gray-400">detected: {detectedType}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="mt-4">
+                                <button
+                                    onClick={handleTokenize}
+                                    disabled={tokenizing || !secretKey || Object.keys(selectedColumns).length === 0}
+                                    className="bg-green-500 hover:bg-green-600 text-white px-6 py-2 rounded disabled:opacity-50"
+                                >
+                                    {tokenizing ? 'Tokenizing...' : 'Tokenize Selected Columns'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Tokenization Preview */}
+                    {comparison.length > 0 && (
+                        <div className="bg-white p-4 rounded shadow">
+                            <h3 className="font-semibold mb-3">Tokenization Preview (Before/After)</h3>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full border">
+                                    <thead className="bg-gray-100">
+                                        <tr>
+                                            <th className="px-4 py-2 border">Column</th>
+                                            <th className="px-4 py-2 border">Original</th>
+                                            <th className="px-4 py-2 border">Tokenized</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {comparison.map((row, i) => (
+                                            <tr key={i}>
+                                                <td className="px-4 py-2 border font-medium">{row.column}</td>
+                                                <td className="px-4 py-2 border text-red-600 font-mono text-sm">{row.original}</td>
+                                                <td className="px-4 py-2 border text-green-600 font-mono text-sm">{row.tokenized}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Tokenized Data Actions */}
+                    {tokenizedData && (
+                        <div className="bg-white p-4 rounded shadow">
+                            <h3 className="font-semibold mb-3">Tokenized Data</h3>
+                            <div className="flex gap-4 mb-4">
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-sm text-gray-500">Rows</p>
+                                    <p className="text-xl font-bold">{tokenizedData.rows?.toLocaleString()}</p>
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-sm text-gray-500">Tokenized Columns</p>
+                                    <p className="text-xl font-bold">{tokenizedData.columns_tokenized?.length || 0}</p>
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <DataTable data={tokenizedData.preview} maxRows={5} />
+                            </div>
+
+                            <div className="flex gap-4 flex-wrap">
+                                <button
+                                    onClick={() => handleDownloadTokenized('csv')}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                                >
+                                    Download CSV
+                                </button>
+                                <button
+                                    onClick={() => handleDownloadTokenized('parquet')}
+                                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                                >
+                                    Download Parquet
+                                </button>
+                                <button
+                                    onClick={onUseAsSource}
+                                    className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded"
+                                >
+                                    Use as Source for Synthetic Generation
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         function GenerateTab({ hasData, onGenerate, generating }) {
             if (!hasData) {
                 return <div className="text-center py-12 text-gray-500">Load data first</div>;
@@ -544,6 +832,7 @@
                 syntheticData: null,
                 comparison: null,
                 generating: false,
+                tokenizedData: null,
             });
             const [settings, setSettings] = useState({
                 nRows: 1000,
@@ -633,6 +922,46 @@
                 window.open(`${API_BASE}/synthetic/download/${format}`, '_blank');
             };
 
+            const handleTokenize = async (secretKey, columnTypes) => {
+                try {
+                    setError(null);
+                    const result = await api.post('/tokenize', {
+                        secret_key: secretKey,
+                        column_types: columnTypes,
+                    });
+                    setState(s => ({...s, tokenizedData: result}));
+                    return result;
+                } catch (e) {
+                    setError(e.message);
+                    throw e;
+                }
+            };
+
+            const handleUseTokenizedAsSource = async () => {
+                try {
+                    setError(null);
+                    const result = await api.post('/tokenize/use-as-source');
+                    // Refresh source data
+                    setState(s => ({
+                        ...s,
+                        sourceData: {
+                            ...s.sourceData,
+                            rows: result.rows,
+                            columns: result.columns,
+                        },
+                        profile: null,
+                        syntheticData: null,
+                        comparison: null,
+                    }));
+                    // Refresh info
+                    const info = await api.get('/info');
+                    setAppInfo(info);
+                    alert('Tokenized data is now the source for synthetic generation');
+                } catch (e) {
+                    setError(e.message);
+                }
+            };
+
             if (loading) {
                 return (
                     <div className="flex items-center justify-center h-screen">
@@ -659,9 +988,12 @@
                         )}
                         <MainContent
                             state={state}
+                            appInfo={appInfo}
                             onProfile={handleProfile}
                             onGenerate={handleGenerate}
                             onDownload={handleDownload}
+                            onTokenize={handleTokenize}
+                            onUseTokenizedAsSource={handleUseTokenizedAsSource}
                         />
                     </div>
                 </div>

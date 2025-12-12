@@ -17,5 +17,8 @@ pydantic>=2.5.0
 pydantic-settings>=2.1.0
 loguru>=0.7.0
 
+# LLM Integration (for smart column detection)
+anthropic>=0.18.0
+
 # Note: SDV is optional (heavy package, ~500MB)
 # Install separately if needed: pip install sdv>=1.6.0

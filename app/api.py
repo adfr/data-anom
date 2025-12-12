@@ -11,6 +11,8 @@ import sys
 import traceback
 from functools import wraps
 
+from loguru import logger
+
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -22,6 +24,8 @@ import numpy as np
 from app.services.cdp_connector import MockCDPConnector
 from app.services.data_profiler import DataProfiler
 from app.services.synthetic_generator import SyntheticDataGenerator
+from app.services.tokenizer import FormatPreservingTokenizer, detect_sensitive_columns
+from app.services.llm_detector import LLMColumnDetector, is_llm_available
 
 # Try to import CML connector
 try:
@@ -53,6 +57,9 @@ state = {
     "profile": None,
     "column_config": None,
     "synthetic_data": None,
+    "tokenizer": None,
+    "tokenized_data": None,
+    "tokenizer_key": None,
 }
 
 
@@ -97,6 +104,7 @@ def info():
         "cml_environment": is_cml_environment(),
         "cml_connector_available": CML_AVAILABLE,
         "sdv_available": SDV_AVAILABLE,
+        "llm_available": is_llm_available(),
         "generator_types": ["basic"] + (["gaussian_copula", "ctgan"] if SDV_AVAILABLE else []),
         "state": {
             "connected": state["connector"] is not None,
@@ -105,11 +113,30 @@ def info():
             "data_rows": len(state["source_data"]) if state["source_data"] is not None else 0,
             "profiled": state["profile"] is not None,
             "synthetic_generated": state["synthetic_data"] is not None,
+            "tokenized": state["tokenized_data"] is not None,
         }
     })
 
 
 # ============ Connection Endpoints ============
+
+@app.route("/api/connections", methods=["GET"])
+@handle_errors
+def list_connections():
+    """List available CML Data Connections with their types."""
+    if not CML_AVAILABLE:
+        return jsonify({"connections": [], "error": "CML not available"})
+
+    try:
+        connector = CMLDataLakeConnector()
+        connections = connector.get_available_connections()
+        return jsonify({
+            "connections": connections,
+            "default_connection": os.environ.get("CML_CONNECTION_NAME"),
+        })
+    except Exception as e:
+        return jsonify({"connections": [], "error": str(e)})
+
 
 @app.route("/api/connect/demo", methods=["POST"])
 @handle_errors
@@ -125,18 +152,33 @@ def connect_demo():
 @app.route("/api/connect/cml", methods=["POST"])
 @handle_errors
 def connect_cml():
-    """Connect to CML Data Lake."""
+    """Connect to Cloudera using CML Data Connections (Virtual Data Warehouse or Data Lake)."""
     if not CML_AVAILABLE:
-        return jsonify({"error": "CML connector not available"}), 400
+        return jsonify({"error": "CML connector not available. Make sure you're running in Cloudera ML."}), 400
 
     data = request.get_json() or {}
-    catalog_name = data.get("catalog_name", "spark_catalog")
+    # Use provided connection name, env variable, or auto-detect
+    connection_name = data.get("connection_name") or os.environ.get("CML_CONNECTION_NAME")
 
-    connector = CMLDataLakeConnector(catalog_name=catalog_name)
-    connector._get_spark()  # Initialize
-    state["connector"] = connector
-    state["connector_type"] = "cml"
-    return jsonify({"status": "connected", "type": "cml", "catalog": catalog_name})
+    try:
+        connector = CMLDataLakeConnector(connection_name=connection_name)
+        connector._get_connection()  # Initialize and validate
+        state["connector"] = connector
+        state["connector_type"] = "cml"
+
+        # Get connection info
+        conn_info = connector.get_connection_info()
+
+        return jsonify({
+            "status": "connected",
+            "type": "cml",
+            "connection_name": connector.connection_name,
+            "connection_type": conn_info.get("type"),
+            "connection_type_label": conn_info.get("type_label"),
+            "available_connections": connector.get_available_connections(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/api/disconnect", methods=["POST"])
@@ -543,6 +585,196 @@ def compare_distribution(column):
             "original": {str(k): int(v) for k, v in orig_counts.items()},
             "synthetic": {str(k): int(v) for k, v in synth_counts.items()},
         })
+
+
+# ============ Tokenization Endpoints ============
+
+@app.route("/api/tokenize/detect", methods=["POST"])
+@handle_errors
+def detect_sensitive():
+    """Auto-detect sensitive columns in the loaded data."""
+    if state["source_data"] is None:
+        return jsonify({"error": "No data loaded"}), 400
+
+    data = request.get_json() or {}
+    use_llm = data.get("use_llm", False)
+    additional_context = data.get("context")
+
+    detection_method = "rule_based"
+
+    if use_llm:
+        # Get API key from request or environment
+        api_key = data.get("api_key") or os.environ.get("ANTHROPIC_API_KEY")
+
+        if not api_key:
+            return jsonify({
+                "error": "LLM detection requires an API key. Provide 'api_key' in request or set ANTHROPIC_API_KEY environment variable."
+            }), 400
+
+        try:
+            detector = LLMColumnDetector(api_key=api_key)
+            sensitive = detector.detect_sensitive_columns(
+                state["source_data"],
+                additional_context=additional_context
+            )
+            detection_method = "llm"
+        except Exception as e:
+            # Fall back to rule-based
+            logger.warning(f"LLM detection failed, falling back to rule-based: {e}")
+            sensitive = detect_sensitive_columns(state["source_data"])
+            detection_method = "rule_based_fallback"
+    else:
+        sensitive = detect_sensitive_columns(state["source_data"])
+
+    return jsonify({
+        "sensitive_columns": sensitive,
+        "all_columns": list(state["source_data"].columns),
+        "detection_method": detection_method,
+        "llm_available": is_llm_available(),
+    })
+
+
+@app.route("/api/tokenize/generate-key", methods=["POST"])
+@handle_errors
+def generate_tokenizer_key():
+    """Generate a new encryption key for tokenization."""
+    key = FormatPreservingTokenizer.generate_key()
+    return jsonify({"key": key})
+
+
+@app.route("/api/tokenize", methods=["POST"])
+@handle_errors
+def tokenize_data():
+    """Tokenize sensitive columns in the data."""
+    if state["source_data"] is None:
+        return jsonify({"error": "No data loaded"}), 400
+
+    data = request.get_json() or {}
+    secret_key = data.get("secret_key")
+    column_types = data.get("column_types", {})
+
+    if not secret_key:
+        return jsonify({"error": "Secret key is required"}), 400
+
+    if not column_types:
+        return jsonify({"error": "No columns specified for tokenization"}), 400
+
+    # Create tokenizer
+    try:
+        tokenizer = FormatPreservingTokenizer(secret_key)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # Tokenize data
+    tokenized_df = tokenizer.tokenize_dataframe(
+        state["source_data"],
+        column_types=column_types
+    )
+
+    state["tokenizer"] = tokenizer
+    state["tokenized_data"] = tokenized_df
+    state["tokenizer_key"] = secret_key
+
+    # Get sample of original vs tokenized for preview
+    preview_comparison = []
+    for col in column_types.keys():
+        if col in state["source_data"].columns:
+            for i in range(min(5, len(state["source_data"]))):
+                orig_val = state["source_data"][col].iloc[i]
+                tok_val = tokenized_df[col].iloc[i]
+                preview_comparison.append({
+                    "column": col,
+                    "original": str(orig_val) if pd.notna(orig_val) else None,
+                    "tokenized": str(tok_val) if pd.notna(tok_val) else None,
+                })
+
+    return jsonify({
+        "status": "tokenized",
+        "rows": len(tokenized_df),
+        "columns_tokenized": list(column_types.keys()),
+        "preview": tokenized_df.head(10).to_dict(orient="records"),
+        "comparison": preview_comparison,
+    })
+
+
+@app.route("/api/tokenize/preview", methods=["GET"])
+@handle_errors
+def preview_tokenized():
+    """Preview tokenized data."""
+    if state["tokenized_data"] is None:
+        return jsonify({"error": "No tokenized data available"}), 400
+
+    n = request.args.get("n", 20, type=int)
+    return jsonify({
+        "rows": len(state["tokenized_data"]),
+        "columns": list(state["tokenized_data"].columns),
+        "preview": state["tokenized_data"].head(n).to_dict(orient="records"),
+    })
+
+
+@app.route("/api/tokenize/download/<format>", methods=["GET"])
+@handle_errors
+def download_tokenized(format):
+    """Download tokenized data."""
+    if state["tokenized_data"] is None:
+        return jsonify({"error": "No tokenized data available"}), 400
+
+    if format == "csv":
+        output = io.StringIO()
+        state["tokenized_data"].to_csv(output, index=False)
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode()),
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name="tokenized_data.csv"
+        )
+    elif format == "parquet":
+        output = io.BytesIO()
+        state["tokenized_data"].to_parquet(output, index=False)
+        output.seek(0)
+        return send_file(
+            output,
+            mimetype="application/octet-stream",
+            as_attachment=True,
+            download_name="tokenized_data.parquet"
+        )
+    else:
+        return jsonify({"error": f"Unknown format: {format}"}), 400
+
+
+@app.route("/api/tokenize/mapping", methods=["GET"])
+@handle_errors
+def get_token_mapping():
+    """Get the tokenization mapping (for audit purposes)."""
+    if state["tokenizer"] is None:
+        return jsonify({"error": "No tokenizer active"}), 400
+
+    mapping = state["tokenizer"].get_token_mapping()
+    return jsonify({
+        "mapping_count": len(mapping),
+        "mapping": mapping,
+    })
+
+
+@app.route("/api/tokenize/use-as-source", methods=["POST"])
+@handle_errors
+def use_tokenized_as_source():
+    """Use the tokenized data as the new source for synthetic generation."""
+    if state["tokenized_data"] is None:
+        return jsonify({"error": "No tokenized data available"}), 400
+
+    state["source_data"] = state["tokenized_data"].copy()
+    state["profile"] = None
+    state["column_config"] = None
+    state["synthetic_data"] = None
+
+    return jsonify({
+        "status": "updated",
+        "rows": len(state["source_data"]),
+        "columns": list(state["source_data"].columns),
+        "message": "Tokenized data is now the source for synthetic generation",
+    })
 
 
 def create_app():
