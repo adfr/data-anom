@@ -290,15 +290,29 @@ class SparkConnector:
         Returns:
             Pandas DataFrame with sampled data
         """
+        import time
+
+        t0 = time.time()
         spark = self._get_spark()
+        logger.info(f"Spark session ready: {time.time() - t0:.2f}s")
 
         # Simple LIMIT query - fast and reliable
         query = f"SELECT * FROM {database}.{table} LIMIT {n}"
         logger.info(f"Executing: {query}")
 
         try:
+            t1 = time.time()
             spark_df = spark.sql(query)
-            return spark_df.toPandas()
+            logger.info(f"SQL executed: {time.time() - t1:.2f}s")
+
+            t2 = time.time()
+            # Workaround for numpy/PySpark compatibility (np.bool removed in numpy 1.24+)
+            import numpy as np
+            if not hasattr(np, 'bool'):
+                np.bool = np.bool_
+            pdf = spark_df.toPandas()
+            logger.info(f"toPandas done: {time.time() - t2:.2f}s (total: {time.time() - t0:.2f}s)")
+            return pdf
         except Exception as e:
             logger.error(f"Error sampling {database}.{table}: {e}")
             raise
