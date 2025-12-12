@@ -17,12 +17,13 @@ class CMLDataConnector:
     Native connector for Cloudera AI/CML environment using CML Data Connections.
 
     Uses CML's built-in data connection feature for simplified, secure access to:
-    - Cloudera Data Warehouse (CDW) Virtual Warehouses
+    - Cloudera Data Warehouse (CDW) Virtual Warehouses (Impala/Hive)
     - Cloudera Data Lake (Hive, Impala, Iceberg tables)
     """
 
-    # Connection type keywords for auto-detection
-    CDW_KEYWORDS = ['cdw', 'warehouse', 'vw', 'virtual', 'impala', 'hive-llap']
+    # Connection type keywords for auto-detection (Impala preferred)
+    IMPALA_KEYWORDS = ['impala', 'cdw-impala', 'vw-impala']
+    CDW_KEYWORDS = ['cdw', 'warehouse', 'vw', 'virtual', 'hive-llap']
     DATALAKE_KEYWORDS = ['datalake', 'lake', 'hdfs', 'hive', 'sdx']
 
     def __init__(self, connection_name: Optional[str] = None):
@@ -43,14 +44,18 @@ class CMLDataConnector:
         """Detect the type of connection based on its name."""
         conn_lower = conn_name.lower()
 
-        # Check for CDW keywords first (more specific)
-        if any(kw in conn_lower for kw in self.CDW_KEYWORDS):
+        # Check for Impala keywords first (preferred for CDW)
+        if any(kw in conn_lower for kw in self.IMPALA_KEYWORDS):
+            return 'impala'
+        # Check for CDW keywords
+        elif any(kw in conn_lower for kw in self.CDW_KEYWORDS):
             return 'cdw'
         # Check for Data Lake keywords
         elif any(kw in conn_lower for kw in self.DATALAKE_KEYWORDS):
             return 'datalake'
         else:
-            return 'unknown'
+            # Default to Impala for unknown CDW connections (most common)
+            return 'impala'
 
     def _list_available_connections(self) -> List[str]:
         """List available CML Data Connections (handles different API versions)."""
@@ -133,7 +138,13 @@ class CMLDataConnector:
 
     def _auto_select_connection(self) -> str:
         """Auto-select the best available connection."""
-        # First, look for CDW connections (preferred for analytics)
+        # First, look for Impala connections (preferred for interactive queries)
+        for conn in self._available_connections:
+            if self._detect_connection_type(conn) == 'impala':
+                logger.info(f"Auto-selected Impala connection: {conn}")
+                return conn
+
+        # Then look for CDW connections
         for conn in self._available_connections:
             if self._detect_connection_type(conn) == 'cdw':
                 logger.info(f"Auto-selected CDW connection: {conn}")
@@ -145,7 +156,7 @@ class CMLDataConnector:
                 logger.info(f"Auto-selected Data Lake connection: {conn}")
                 return conn
 
-        # Fall back to first available
+        # Fall back to first available (assume Impala)
         logger.info(f"Auto-selected first available connection: {self._available_connections[0]}")
         return self._available_connections[0]
 
@@ -189,11 +200,12 @@ class CMLDataConnector:
     def _get_type_label(self) -> str:
         """Get a human-readable label for the connection type."""
         labels = {
+            'impala': 'Impala Virtual Warehouse',
             'cdw': 'Virtual Data Warehouse (CDW)',
             'datalake': 'Data Lake',
             'unknown': 'Data Connection',
         }
-        return labels.get(self._connection_type, 'Data Connection')
+        return labels.get(self._connection_type, 'Impala Virtual Warehouse')
 
     def get_available_connections(self) -> List[Dict[str, Any]]:
         """Get list of available CML Data Connections with their types."""
@@ -204,10 +216,11 @@ class CMLDataConnector:
                     "name": conn,
                     "type": self._detect_connection_type(conn),
                     "type_label": {
+                        'impala': 'Impala Virtual Warehouse',
                         'cdw': 'Virtual Data Warehouse',
                         'datalake': 'Data Lake',
                         'unknown': 'Data Connection',
-                    }.get(self._detect_connection_type(conn), 'Data Connection'),
+                    }.get(self._detect_connection_type(conn), 'Impala Virtual Warehouse'),
                 }
                 for conn in connections
             ]
@@ -420,8 +433,8 @@ class CMLDataConnector:
         Returns:
             Pandas DataFrame with sampled data
         """
-        # Try TABLESAMPLE for CDW/Impala (more efficient for large tables)
-        if self._connection_type == 'cdw':
+        # Try TABLESAMPLE for Impala/CDW (more efficient for large tables)
+        if self._connection_type in ('impala', 'cdw'):
             try:
                 conn = self._get_connection()
                 # TABLESAMPLE syntax for Impala
