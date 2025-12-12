@@ -484,8 +484,8 @@ def get_connector(connection_name: Optional[str] = None):
         try:
             from app.services.spark_connector import SparkConnector
             connector = SparkConnector(connection_name=connection_name)
-            connector._get_spark()  # Test connection
-            logger.info("Using Spark connector for Data Lake access")
+            # Don't initialize Spark here - delay until first query
+            logger.info("Using Spark connector for Data Lake access (lazy init)")
             return connector
         except Exception as e:
             logger.warning(f"Spark connector failed: {e}. Trying CML connector...")

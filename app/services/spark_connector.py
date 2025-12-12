@@ -88,16 +88,16 @@ class SparkConnector:
         return self._initialized and self._spark is not None
 
     def get_connection_info(self) -> Dict[str, Any]:
-        """Get information about the current connection."""
-        if not self._initialized:
-            self._get_spark()
+        """Get information about the current connection (without initializing Spark)."""
+        import os
+        conn_name = self.connection_name or os.environ.get('CML_CONNECTION_NAME') or "spark"
 
         return {
-            "name": self.connection_name or "spark",
+            "name": conn_name,
             "type": "spark",
             "type_label": "Spark (Data Lake)",
-            "available_connections": [self.connection_name] if self.connection_name else ["spark"],
-            "details": self._connection_info,
+            "available_connections": [conn_name],
+            "details": self._connection_info if self._initialized else {"status": "ready"},
         }
 
     def list_databases(self) -> List[str]:
