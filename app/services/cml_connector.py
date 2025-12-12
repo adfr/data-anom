@@ -22,9 +22,10 @@ class CMLDataConnector:
     """
 
     # Connection type keywords for auto-detection (Impala preferred)
-    IMPALA_KEYWORDS = ['impala', 'cdw-impala', 'vw-impala']
-    CDW_KEYWORDS = ['cdw', 'warehouse', 'vw', 'virtual', 'hive-llap']
-    DATALAKE_KEYWORDS = ['datalake', 'lake', 'hdfs', 'hive', 'sdx']
+    # Most CDW connections are Impala-based, so we default to Impala
+    IMPALA_KEYWORDS = ['impala', 'cdw-impala', 'vw-impala', 'vw', 'virtual']
+    HIVE_KEYWORDS = ['hive', 'hive-llap', 'cdw-hive']
+    DATALAKE_KEYWORDS = ['datalake', 'lake', 'hdfs', 'sdx']
 
     def __init__(self, connection_name: Optional[str] = None):
         """
@@ -41,21 +42,14 @@ class CMLDataConnector:
         self._connection_info = {}
 
     def _detect_connection_type(self, conn_name: str) -> str:
-        """Detect the type of connection based on its name."""
-        conn_lower = conn_name.lower()
-
-        # Check for Impala keywords first (preferred for CDW)
-        if any(kw in conn_lower for kw in self.IMPALA_KEYWORDS):
-            return 'impala'
-        # Check for CDW keywords
-        elif any(kw in conn_lower for kw in self.CDW_KEYWORDS):
-            return 'cdw'
-        # Check for Data Lake keywords
-        elif any(kw in conn_lower for kw in self.DATALAKE_KEYWORDS):
-            return 'datalake'
-        else:
-            # Default to Impala for unknown CDW connections (most common)
-            return 'impala'
+        """Get connection type from environment or default to impala."""
+        import os
+        # Use explicit environment variable if set
+        conn_type = os.environ.get('CML_CONNECTION_TYPE', 'impala').lower()
+        if conn_type in ('impala', 'hive', 'datalake'):
+            return conn_type
+        # Default to Impala (most common for CDW)
+        return 'impala'
 
     def _list_available_connections(self) -> List[str]:
         """List available CML Data Connections (handles different API versions)."""
