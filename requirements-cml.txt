@@ -20,8 +20,7 @@ loguru>=0.7.0
 # LLM Integration (for smart column detection)
 anthropic>=0.18.0
 
-# Note: PySpark is usually pre-installed in CML
-# For Spark connector: pip install pyspark>=3.3.0
+# Note: PySpark is pre-installed in CML (no install needed)
 
 # Note: SDV is optional (heavy package, ~500MB)
 # Install separately if needed: pip install sdv>=1.6.0
