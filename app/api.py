@@ -514,6 +514,104 @@ def download_synthetic(format):
         return jsonify({"error": f"Unknown format: {format}"}), 400
 
 
+@app.route("/api/synthetic/save-iceberg", methods=["POST"])
+@handle_errors
+def save_to_iceberg():
+    """Save synthetic data to an Iceberg table via Spark."""
+    if state["synthetic_data"] is None:
+        return jsonify({"error": "No synthetic data generated"}), 400
+
+    if state["connector"] is None:
+        return jsonify({"error": "No active connection"}), 400
+
+    data = request.get_json() or {}
+    table_path = data.get("table_path")
+    mode = data.get("mode", "overwrite")
+    partition_by = data.get("partition_by")
+
+    if not table_path:
+        return jsonify({"error": "table_path is required (e.g., 'database.table_name')"}), 400
+
+    # Validate mode
+    if mode not in ["overwrite", "append", "create"]:
+        return jsonify({"error": f"Invalid mode: {mode}. Must be 'overwrite', 'append', or 'create'"}), 400
+
+    # Check if connector supports write_to_iceberg
+    if not hasattr(state["connector"], "write_to_iceberg"):
+        # Try to use SparkConnector directly if available
+        try:
+            from app.services.spark_connector import SparkConnector
+            if isinstance(state["connector"], SparkConnector):
+                connector = state["connector"]
+            else:
+                return jsonify({
+                    "error": "Current connection does not support Iceberg writes. Please connect using Spark/CML Data Connection."
+                }), 400
+        except ImportError:
+            return jsonify({"error": "Spark connector not available"}), 400
+    else:
+        connector = state["connector"]
+
+    # Write to Iceberg
+    result = connector.write_to_iceberg(
+        df=state["synthetic_data"],
+        table_path=table_path,
+        mode=mode,
+        partition_by=partition_by,
+    )
+
+    return jsonify(result)
+
+
+@app.route("/api/source/save-iceberg", methods=["POST"])
+@handle_errors
+def save_source_to_iceberg():
+    """Save source data (including sample/demo datasets) to an Iceberg table via Spark."""
+    if state["source_data"] is None:
+        return jsonify({"error": "No source data loaded"}), 400
+
+    if state["connector"] is None:
+        return jsonify({"error": "No active connection"}), 400
+
+    data = request.get_json() or {}
+    table_path = data.get("table_path")
+    mode = data.get("mode", "overwrite")
+    partition_by = data.get("partition_by")
+
+    if not table_path:
+        return jsonify({"error": "table_path is required (e.g., 'database.table_name')"}), 400
+
+    # Validate mode
+    if mode not in ["overwrite", "append", "create"]:
+        return jsonify({"error": f"Invalid mode: {mode}. Must be 'overwrite', 'append', or 'create'"}), 400
+
+    # Check if connector supports write_to_iceberg
+    if not hasattr(state["connector"], "write_to_iceberg"):
+        # Try to use SparkConnector directly if available
+        try:
+            from app.services.spark_connector import SparkConnector
+            if isinstance(state["connector"], SparkConnector):
+                connector = state["connector"]
+            else:
+                return jsonify({
+                    "error": "Current connection does not support Iceberg writes. Please connect using Spark/CML Data Connection."
+                }), 400
+        except ImportError:
+            return jsonify({"error": "Spark connector not available"}), 400
+    else:
+        connector = state["connector"]
+
+    # Write to Iceberg
+    result = connector.write_to_iceberg(
+        df=state["source_data"],
+        table_path=table_path,
+        mode=mode,
+        partition_by=partition_by,
+    )
+
+    return jsonify(result)
+
+
 # ============ Comparison Endpoints ============
 
 @app.route("/api/compare/stats", methods=["GET"])
