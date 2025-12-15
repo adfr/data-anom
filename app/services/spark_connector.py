@@ -347,7 +347,22 @@ class SparkConnector:
 
         try:
             # Convert Pandas DataFrame to Spark DataFrame
-            spark_df = spark.createDataFrame(df)
+            # Use Arrow for better pandas 2.0+ compatibility, with fallback
+            try:
+                # Try Arrow-based conversion first (faster and more compatible)
+                spark.conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+                spark_df = spark.createDataFrame(df)
+            except Exception as arrow_err:
+                logger.warning(f"Arrow conversion failed, using manual conversion: {arrow_err}")
+                # Fallback: convert via records to avoid iteritems() issue
+                records = df.to_dict(orient='records')
+                if records:
+                    spark_df = spark.createDataFrame(records)
+                else:
+                    # Empty DataFrame - create with schema
+                    from pyspark.sql.types import StructType, StructField, StringType
+                    schema = StructType([StructField(c, StringType(), True) for c in df.columns])
+                    spark_df = spark.createDataFrame([], schema)
 
             # Get writer
             writer = spark_df.write.format("iceberg")
