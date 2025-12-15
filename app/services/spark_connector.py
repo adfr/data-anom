@@ -321,6 +321,67 @@ class SparkConnector:
             logger.error(f"Error sampling {database}.{table}: {e}")
             raise
 
+    def write_to_iceberg(
+        self,
+        df: pd.DataFrame,
+        table_path: str,
+        mode: str = "overwrite",
+        partition_by: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Write a Pandas DataFrame to an Iceberg table.
+
+        Args:
+            df: Pandas DataFrame to write
+            table_path: Full table path (e.g., 'database.table_name' or
+                       'catalog.database.table_name')
+            mode: Write mode - 'overwrite', 'append', or 'create' (default: 'overwrite')
+            partition_by: Optional list of columns to partition by
+
+        Returns:
+            Dictionary with write status and details
+        """
+        spark = self._get_spark()
+
+        logger.info(f"Writing DataFrame ({len(df)} rows) to Iceberg table: {table_path}")
+
+        try:
+            # Convert Pandas DataFrame to Spark DataFrame
+            spark_df = spark.createDataFrame(df)
+
+            # Get writer
+            writer = spark_df.write.format("iceberg")
+
+            # Set write mode
+            if mode == "append":
+                writer = writer.mode("append")
+            elif mode == "create":
+                writer = writer.mode("errorifexists")
+            else:  # overwrite
+                writer = writer.mode("overwrite")
+
+            # Add partitioning if specified
+            if partition_by:
+                writer = writer.partitionBy(*partition_by)
+
+            # Write to table
+            writer.saveAsTable(table_path)
+
+            logger.info(f"Successfully wrote {len(df)} rows to {table_path}")
+
+            return {
+                "status": "success",
+                "table_path": table_path,
+                "rows_written": len(df),
+                "columns": list(df.columns),
+                "mode": mode,
+                "partition_by": partition_by,
+            }
+
+        except Exception as e:
+            logger.error(f"Error writing to Iceberg table {table_path}: {e}")
+            raise
+
     def close(self):
         """Stop the Spark session."""
         if self._spark is not None:
