@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.components.ui_components import (
     display_column_config,
-    display_correlation_comparison,
     display_correlation_heatmap,
     display_data_preview,
     display_profile_summary,
@@ -627,11 +626,6 @@ def render_results_tab():
 
     # Quality comparison
     display_quality_report(st.session_state.source_data, st.session_state.synthetic_data)
-
-    st.divider()
-
-    # Correlation preservation analysis
-    display_correlation_comparison(st.session_state.source_data, st.session_state.synthetic_data)
 
     st.divider()
 
