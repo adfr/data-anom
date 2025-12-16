@@ -21,8 +21,8 @@ tasks:
   - type: run_application
     name: Launch Synthetic Data Generator
     entity_label: synthetic_data_generator
-    script: app/main.py
-    short_summary: Streamlit UI for synthetic data generation
+    script: launch_app.py
+    short_summary: Web UI for synthetic data generation
     long_summary: |
       Interactive UI for generating synthetic data from CDP Iceberg tables.
       Supports automatic data profiling, multiple generation methods, and quality reports.
@@ -30,11 +30,3 @@ tasks:
     memory: 8
     environment:
       TASK_TYPE: APPLICATION
-    arguments:
-      - streamlit
-      - run
-      - app/main.py
-      - --server.port
-      - "8080"
-      - --server.address
-      - "0.0.0.0"
