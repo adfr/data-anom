@@ -138,6 +138,9 @@ def render_sidebar():
         except ImportError:
             sdv_available = False
             generator_options = ["Basic (Fast)"]
+            # Reset generator_type if it was set to an SDV option that's no longer available
+            if st.session_state.get("generator_type", "").startswith("SDV"):
+                st.session_state.generator_type = "Basic (Fast)"
 
         st.session_state.generator_type = st.selectbox(
             "Generator Type",
@@ -549,6 +552,16 @@ def generate_synthetic_data():
 
             status_text.text("Initializing generator...")
             progress_bar.progress(10)
+
+            # Check if SDV is available when SDV generator is selected
+            if "SDV" in generator_type:
+                try:
+                    import sdv
+                except ImportError:
+                    st.error("SDV package is not installed. Install it with: `pip install sdv>=1.6.0`")
+                    progress_bar.empty()
+                    status_text.empty()
+                    return
 
             if "SDV" in generator_type:
                 # Use SDV generator
