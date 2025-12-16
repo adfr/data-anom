@@ -12,6 +12,9 @@ faker>=20.0.0
 scipy>=1.11.0
 scikit-learn>=1.3.0
 
+# SDV for advanced synthetic data generation
+sdv>=1.6.0
+
 # Utilities
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
@@ -21,6 +24,3 @@ loguru>=0.7.0
 anthropic>=0.18.0
 
 # Note: PySpark is pre-installed in CML (no install needed)
-
-# Note: SDV is optional (heavy package, ~500MB)
-# Install separately if needed: pip install sdv>=1.6.0
