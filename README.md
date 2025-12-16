@@ -83,10 +83,10 @@ The application runs automatically when you start the CML Application.
 
 **Locally:**
 ```bash
-streamlit run app/main.py
+python launch_app.py
 ```
 
-The application will open in your browser at `http://localhost:8501`.
+The application will open in your browser at `http://localhost:8090`.
 
 ### Quick Start
 
@@ -128,10 +128,9 @@ CDP_USE_SSL=true
 data-anom/
 ├── app/
 │   ├── __init__.py
-│   ├── main.py                    # Streamlit application
-│   ├── components/
-│   │   ├── __init__.py
-│   │   └── ui_components.py       # Reusable UI components
+│   ├── api.py                     # Flask REST API backend
+│   ├── templates/
+│   │   └── index.html             # React frontend UI
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── cdp_connector.py       # CDP/Impala connection
@@ -221,7 +220,7 @@ synthetic_df.to_csv("synthetic_data.csv", index=False)
 
 See `requirements.txt` for full list. Key dependencies:
 
-- `streamlit` - Web UI
+- `flask` - Web framework
 - `pandas` - Data manipulation
 - `sdv` - Synthetic Data Vault
 - `faker` - Fake data generation
