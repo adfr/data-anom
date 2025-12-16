@@ -34,12 +34,14 @@ try:
 except ImportError:
     CML_AVAILABLE = False
 
-# Try to import SDV
+# Try to import SDV (check actual sdv package, not just the wrapper class)
 try:
+    import sdv
     from app.services.synthetic_generator import SDVSyntheticGenerator
     SDV_AVAILABLE = True
 except ImportError:
     SDV_AVAILABLE = False
+    SDVSyntheticGenerator = None
 
 
 # Get the app directory for templates
@@ -446,7 +448,9 @@ def generate_synthetic():
         )
         generator.fit()
         synthetic_df = generator.generate(n_rows)
-    elif generator_type in ["gaussian_copula", "ctgan"] and SDV_AVAILABLE:
+    elif generator_type in ["gaussian_copula", "ctgan"]:
+        if not SDV_AVAILABLE:
+            return jsonify({"error": "SDV package is not installed. Install with: pip install sdv>=1.6.0"}), 400
         model_type = generator_type
         generator = SDVSyntheticGenerator(
             state["source_data"],
