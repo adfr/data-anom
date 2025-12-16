@@ -690,6 +690,78 @@ def compare_distribution(column):
         })
 
 
+@app.route("/api/compare/correlations", methods=["GET"])
+@handle_errors
+def compare_correlations():
+    """Compare correlation matrices between original and synthetic data."""
+    if state["source_data"] is None:
+        return jsonify({"error": "No source data"}), 400
+    if state["synthetic_data"] is None:
+        return jsonify({"error": "No synthetic data"}), 400
+
+    original = state["source_data"]
+    synthetic = state["synthetic_data"]
+
+    # Get numeric columns common to both
+    orig_numeric = set(original.select_dtypes(include=[np.number]).columns)
+    synth_numeric = set(synthetic.select_dtypes(include=[np.number]).columns)
+    numeric_cols = sorted(list(orig_numeric & synth_numeric))
+
+    if len(numeric_cols) < 2:
+        return jsonify({
+            "error": "Not enough numeric columns for correlation analysis (need at least 2)",
+            "numeric_columns": len(numeric_cols)
+        }), 400
+
+    # Calculate correlation matrices
+    orig_corr = original[numeric_cols].corr()
+    synth_corr = synthetic[numeric_cols].corr()
+    corr_diff = orig_corr - synth_corr
+
+    # Calculate metrics
+    mask = np.triu(np.ones_like(orig_corr, dtype=bool), k=1)
+    orig_upper = orig_corr.values[mask]
+    synth_upper = synth_corr.values[mask]
+
+    mae = float(np.mean(np.abs(orig_upper - synth_upper)))
+    rmse = float(np.sqrt(np.mean((orig_upper - synth_upper) ** 2)))
+    max_diff = float(np.max(np.abs(orig_upper - synth_upper)))
+    corr_of_corr = float(np.corrcoef(orig_upper, synth_upper)[0, 1])
+
+    # Build pair-wise comparison
+    pairs = []
+    for i, col1 in enumerate(numeric_cols):
+        for col2 in numeric_cols[i + 1:]:
+            orig_val = float(orig_corr.loc[col1, col2])
+            synth_val = float(synth_corr.loc[col1, col2])
+            diff = orig_val - synth_val
+            pairs.append({
+                "column1": col1,
+                "column2": col2,
+                "original": round(orig_val, 3),
+                "synthetic": round(synth_val, 3),
+                "difference": round(diff, 3),
+                "abs_difference": round(abs(diff), 3),
+            })
+
+    # Sort by absolute difference descending
+    pairs.sort(key=lambda x: x["abs_difference"], reverse=True)
+
+    return jsonify({
+        "columns": numeric_cols,
+        "metrics": {
+            "correlation_of_correlations": round(corr_of_corr, 3),
+            "mae": round(mae, 3),
+            "rmse": round(rmse, 3),
+            "max_difference": round(max_diff, 3),
+        },
+        "original_matrix": orig_corr.round(3).to_dict(),
+        "synthetic_matrix": synth_corr.round(3).to_dict(),
+        "difference_matrix": corr_diff.round(3).to_dict(),
+        "pairs": pairs,
+    })
+
+
 # ============ Tokenization Endpoints ============
 
 @app.route("/api/tokenize/detect", methods=["POST"])

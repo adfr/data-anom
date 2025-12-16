@@ -524,6 +524,7 @@
                         <ResultsTab
                             syntheticData={state.syntheticData}
                             comparison={state.comparison}
+                            correlationData={state.correlationData}
                             onDownload={onDownload}
                             onSaveToIceberg={onSaveToIceberg}
                             isConnected={isConnected}
@@ -976,12 +977,28 @@
             );
         }
 
-        function ResultsTab({ syntheticData, comparison, onDownload, onSaveToIceberg, isConnected }) {
+        function ResultsTab({ syntheticData, comparison, correlationData, onDownload, onSaveToIceberg, isConnected }) {
             const [showIcebergModal, setShowIcebergModal] = useState(false);
 
             if (!syntheticData) {
                 return <div className="text-center py-12 text-gray-500">Generate synthetic data first</div>;
             }
+
+            // Helper to get quality indicator
+            const getQualityIndicator = (metrics) => {
+                if (!metrics) return null;
+                const { correlation_of_correlations: corr, mae } = metrics;
+                if (corr > 0.9 && mae < 0.1) {
+                    return { color: 'bg-green-100 text-green-800', text: 'Excellent correlation preservation' };
+                } else if (corr > 0.7 && mae < 0.2) {
+                    return { color: 'bg-blue-100 text-blue-800', text: 'Good correlation preservation' };
+                } else if (corr > 0.5) {
+                    return { color: 'bg-yellow-100 text-yellow-800', text: 'Moderate - consider SDV Gaussian Copula' };
+                }
+                return { color: 'bg-red-100 text-red-800', text: 'Poor - recommend SDV generator' };
+            };
+
+            const qualityIndicator = correlationData?.metrics ? getQualityIndicator(correlationData.metrics) : null;
 
             return (
                 <div className="space-y-4">
@@ -1038,6 +1055,79 @@
                         </div>
                     )}
 
+                    {/* Correlation Preservation Analysis */}
+                    {correlationData && correlationData.metrics && (
+                        <div className="bg-white p-4 rounded shadow">
+                            <h3 className="font-semibold mb-3">Correlation Preservation Analysis</h3>
+
+                            {/* Metrics */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-xs text-gray-500">Correlation of Correlations</p>
+                                    <p className="text-xl font-bold">{correlationData.metrics.correlation_of_correlations}</p>
+                                    <p className="text-xs text-gray-400">1.0 = perfect</p>
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-xs text-gray-500">Mean Absolute Error</p>
+                                    <p className="text-xl font-bold">{correlationData.metrics.mae}</p>
+                                    <p className="text-xs text-gray-400">Lower is better</p>
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-xs text-gray-500">RMSE</p>
+                                    <p className="text-xl font-bold">{correlationData.metrics.rmse}</p>
+                                    <p className="text-xs text-gray-400">Lower is better</p>
+                                </div>
+                                <div className="bg-gray-50 p-3 rounded">
+                                    <p className="text-xs text-gray-500">Max Difference</p>
+                                    <p className="text-xl font-bold">{correlationData.metrics.max_difference}</p>
+                                    <p className="text-xs text-gray-400">Largest discrepancy</p>
+                                </div>
+                            </div>
+
+                            {/* Quality Indicator */}
+                            {qualityIndicator && (
+                                <div className={`p-3 rounded mb-4 ${qualityIndicator.color}`}>
+                                    {qualityIndicator.text}
+                                </div>
+                            )}
+
+                            {/* Pair-wise Correlation Details */}
+                            {correlationData.pairs && correlationData.pairs.length > 0 && (
+                                <div>
+                                    <h4 className="font-medium mb-2 text-sm">Pair-wise Correlation Details</h4>
+                                    <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                                        <table className="min-w-full border text-sm">
+                                            <thead className="bg-gray-100 sticky top-0">
+                                                <tr>
+                                                    <th className="px-3 py-2 border">Column 1</th>
+                                                    <th className="px-3 py-2 border">Column 2</th>
+                                                    <th className="px-3 py-2 border">Original</th>
+                                                    <th className="px-3 py-2 border">Synthetic</th>
+                                                    <th className="px-3 py-2 border">Difference</th>
+                                                    <th className="px-3 py-2 border">Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {correlationData.pairs.map((pair, idx) => (
+                                                    <tr key={idx} className={pair.abs_difference > 0.2 ? 'bg-red-50' : pair.abs_difference > 0.1 ? 'bg-yellow-50' : ''}>
+                                                        <td className="px-3 py-2 border">{pair.column1}</td>
+                                                        <td className="px-3 py-2 border">{pair.column2}</td>
+                                                        <td className="px-3 py-2 border text-center">{pair.original}</td>
+                                                        <td className="px-3 py-2 border text-center">{pair.synthetic}</td>
+                                                        <td className="px-3 py-2 border text-center">{pair.difference}</td>
+                                                        <td className="px-3 py-2 border text-center">
+                                                            {pair.abs_difference < 0.1 ? '✓' : pair.abs_difference < 0.2 ? '△' : '✗'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Download & Save */}
                     <div className="bg-white p-4 rounded shadow">
                         <h3 className="font-semibold mb-3">Export</h3>
@@ -1088,6 +1178,7 @@
                 columnConfig: null,
                 syntheticData: null,
                 comparison: null,
+                correlationData: null,
                 generating: false,
                 tokenizedData: null,
             });
@@ -1173,12 +1264,20 @@
                         generator_type: settings.generatorType,
                         random_seed: settings.randomSeed,
                     });
-                    // Get comparison
+                    // Get comparison stats
                     const comparison = await api.get('/compare/stats');
+                    // Get correlation comparison (may fail if not enough numeric columns)
+                    let correlationData = null;
+                    try {
+                        correlationData = await api.get('/compare/correlations');
+                    } catch (e) {
+                        console.log('Correlation comparison not available:', e.message);
+                    }
                     setState(s => ({
                         ...s,
                         syntheticData: data,
                         comparison: comparison.comparison,
+                        correlationData: correlationData,
                         generating: false,
                     }));
                 } catch (e) {
