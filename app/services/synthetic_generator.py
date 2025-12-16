@@ -459,10 +459,9 @@ class SDVSyntheticGenerator:
 
     def _create_metadata(self):
         """Create SDV metadata from DataFrame."""
-        from sdv.metadata import SingleTableMetadata
+        from sdv.metadata import Metadata
 
-        metadata = SingleTableMetadata()
-        metadata.detect_from_dataframe(self.source_df)
+        metadata = Metadata.detect_from_dataframe(data=self.source_df)
         return metadata
 
     def generate(self, n_rows: int) -> pd.DataFrame:
